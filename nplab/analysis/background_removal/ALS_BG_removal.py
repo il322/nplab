@@ -2,12 +2,7 @@
 """
 Created on Sat Feb 11 17:17:54 2023
 
-BG removal based on ALS (Asymetric Least Squares)
-ALS itself is an efficient polynomial fit,
-as described in paper by E.T. Whittaker 
-Journals of the Actuarial Societies, 1923
-https://doi.org/10.1017/S0013091500077853
-also known as the Whittaker method.
+BG removal based on ALS
 
 @author: jb2444
 """
