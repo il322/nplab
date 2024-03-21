@@ -775,6 +775,8 @@ class Spectrum:
         self.x_raw = self.x.copy()
         self.y_raw = self.y.copy()
 
+        self.x, self.y = truncate_spectrum(self.x, self.y, *self.x_lim)
+
 
     def bg_and_ref(self, background = None, reference = None):
         if background is None:
@@ -792,12 +794,13 @@ class Spectrum:
         if 'Y' in self.__dict__.keys():
             #in case spectrum is 2D
             self.Y = (self.Y - background)/(reference - background)
-            
+
     def normalise(self, norm_range=[0,1]):
         norm_diff = norm_range[1] - norm_range[0]
         self.y_norm = self.y - self.y.min()
         self.y_norm = (self.y_norm/self.y_norm.max()) * norm_diff
         self.y_norm = self.y_norm + norm_range[0]
+
 
     def plot(self, ax = None, y_ticks = True, y_label = 'Intensity', x_label = 'Wavelength (nm)', 
              rc_params = None, title = False, **kwargs):
@@ -835,13 +838,14 @@ class Spectrum:
     def scale_x(self, x_scale, x_shift):
         self.x *= x_scale
         self.x += x_shift
-        
+
     def truncate(self, start_x, end_x, buffer=False):
         if start_x is None:
             start_x = self.x.min()
         if end_x is None:
             end_x = self.x.max()
         self.x, self.y = truncate_spectrum(self.x, self.y, start_wl = start_x, end_wl = end_x, buffer=False)
+
 
 class Timescan(Spectrum):
     def __init__(self, *args, **kwargs):
@@ -881,12 +885,15 @@ class Timescan(Spectrum):
         else:
             v_min = max(mode - min_std*std, mode)
 
-        #print(v_min, v_max)
+
+        print(v_min, v_max)
+
         
         self.v_min = v_min
         self.v_max = v_max
 
-    def plot_timescan(self, ax = None, y_label = '', rc_params = timescan_params, x_lim = None, title = None,
+
+    def plot_timescan(self, ax = None, y_label = None, rc_params = timescan_params, x_lim = None, title = None,
                       x_scale = 1, x_shift = 0, x_label = 'Wavelength (nm)', figsize = None, save_fig = False, 
                       img_name = None,
                       plot_averages = False, avg_chunks = 10, avg_color = 'white', show = True, cmap = 'inferno', 
@@ -917,8 +924,9 @@ class Timescan(Spectrum):
         x = x*x_scale + x_shift
 
         t = self.t_raw
-        
-        if y_label == None:
+
+        if y_label == False:
+
             y_label = ''
 
         if 'exposure' in self.__dict__.keys():
@@ -989,8 +997,10 @@ class Timescan(Spectrum):
                 plt.show()
             else:
                 plt.close('all')
+                
             plt.rcParams.update(old_rc_params)#put rcParams back to normal when done
-            
-    def truncate(self, start_x, end_x, buffer=False):
-        self.x, self.Y = truncate_spectrum(self.x, self.Y, start_wl = start_x, end_wl = end_x, buffer=False)
-        self.y = np.average(self.Y, axis = 0)
+
+        def truncate(self, start_x, end_x, buffer=False):
+            self.x, self.Y = truncate_spectrum(self.x, self.Y, start_wl = start_x, end_wl = end_x, buffer=False)
+            self.y = np.average(self.Y, axis = 0)
+
