@@ -8,11 +8,11 @@ Created on Thu Jan 25 11:23:15 2024
 Plotter for Co-TAPP-SMe 785nm SERS Powerseries:
 
 
-Data: 2023-12-19_633nm_SERS_400Grating_Powerswitch_VariedDarkTime.h5
+Data: 2024-03-26_785nm_Powerseries_BPT_MLAgg.h5
 
 
 (samples:
-     2023-11-28_Co-TAPP-SMe_60nm_MLAgg_c)
+     2024-03-18_BPT_60nm_MLAgg_on_Glass)
 
 """
 
@@ -28,6 +28,7 @@ import statistics
 import scipy
 from scipy.stats import linregress
 from scipy.interpolate import interp1d
+from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 from scipy.signal import find_peaks_cwt
 from scipy.signal import savgol_filter
@@ -50,30 +51,12 @@ from nplab.analysis.il322_analysis import il322_DF_tools as df
 from lmfit.models import GaussianModel
 
 
-#%%
-
-def fig2img(fig):
-    """Convert a Matplotlib figure to a PIL Image and return it"""
-    import io
-    buf = io.BytesIO()
-    fig.savefig(buf)
-    buf.seek(0)
-    img = Image.open(buf)
-    return img
-
-
-class Particle(): 
-    def __init__(self):
-        self.peaks = np.zeros((20,5)) 
-
-
-
 
 #%% h5 files
 
 ## Load raw data h5
-my_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\2024-02-23_785nm_Powerseries.h5")
-
+my_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\2024-03-26_785nm_Powerseries_BPT_MLAgg.h5")
+dark_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\2024-03-26_785_dark_powerseries.h5")
 
 
 #%% Spectral calibration
@@ -84,7 +67,7 @@ my_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\2024-02-23_785nm_Powerse
 lit_spectrum, lit_wn = cal.process_default_lit_spectrum()
 
 ## Load BPT ref spectrum
-bpt_ref = my_h5['ref_meas']['BPT_ref_785nm']
+bpt_ref = my_h5['ref_meas']['BPT_785']
 bpt_ref = SERS.SERS_Spectrum(bpt_ref)
 
 ## Coarse adjustments to miscalibrated spectra
@@ -113,7 +96,7 @@ bpt_ref_no_notch.normalise(norm_y = bpt_ref_no_notch.y_smooth)
 ## Find BPT ref peaks
 ref_wn = cal.find_ref_peaks(bpt_ref_no_notch, lit_spectrum = lit_spectrum, lit_wn = lit_wn, threshold = 0.2, distance = 1)
 
-ref_wn[3] = bpt_ref_no_notch.x[382]
+ref_wn[3] = bpt_ref_no_notch.x[373]
 
 ## Find calibrated wavenumbers
 wn_cal = cal.calibrate_spectrum(bpt_ref_no_notch, ref_wn, lit_spectrum = lit_spectrum, lit_wn = lit_wn, linewidth = 1, deg = 2)
@@ -142,7 +125,7 @@ bpt_ref.x = wn_cal
 
 #%% Spectral efficiency white light calibration
 
-white_ref = my_h5['ref_meas']['white_ref_785nm_x5']
+white_ref = my_h5['ref_meas']['white_scatt_785']
 white_ref = SERS.SERS_Spectrum(white_ref.attrs['wavelengths'], white_ref[2], title = 'White Scatterer')
 
 ## Convert to wn
@@ -156,17 +139,18 @@ white_ref.x = white_ref.x * coarse_stretch
 #                             y = spt.truncate_spectrum(white_ref.x, white_ref.y, notch_range[0], notch_range[1] - 100)[1], 
 #                             name = 'White Scatterer Notch')
 notch = SERS.SERS_Spectrum(white_ref.x, white_ref.y, title = 'Notch')
-notch_range = [(70 + coarse_shift) * coarse_stretch, (128 + coarse_shift) * coarse_stretch] # Define notch range as region in wavenumbers
+notch_range = [(70 + coarse_shift) * coarse_stretch, (115 + coarse_shift) * coarse_stretch] # Define notch range as region in wavenumbers
 notch.truncate(notch_range[0], notch_range[1])
 notch_cts = notch.y.mean()
 notch.plot(title = 'White Scatter Notch')
+
 
 # ## Truncate out notch (same as BPT ref), assign wn_cal
 white_ref.truncate(start_x = truncate_range[0], end_x = truncate_range[1])
 
 
 ## Convert back to wl for efficiency calibration
-white_ref.x = spt.wn_to_wl(white_ref.x, 632.8)
+white_ref.x = spt.wn_to_wl(white_ref.x, 785)
 
 
 # Calculate R_setup
@@ -196,7 +180,7 @@ Using a white_bkg of -100000 flattens it out...
 
 def get_directory(particle_name):
         
-    directory_path = r'C:\Users\il322\Desktop\Offline Data\2024-03-15 Analysis\_' + particle_name + '\\'
+    directory_path = r'C:\Users\il322\Desktop\Offline Data\2024-03-26 Analysis\_' + particle_name + '\\'
     
     if not os.path.exists(directory_path):
         os.makedirs(directory_path)
@@ -205,62 +189,9 @@ def get_directory(particle_name):
     return directory_path
 
 
-#%% Translated Bart's iterative polynomial background subtraction fit
-
-def find_background4(w, n, m, b, tol, pol):
-    """
-    Find background using iterative polynomial curve fitting.
-
-    Parameters:
-    - w (numpy.ndarray): Input wave (data to be fitted and subtracted).
-    - n (int): Start index for the mask initialization.
-    - m (int): Stop index for the mask initialization.
-    - b (int): Number of iterations for the curve fitting.
-    - tol (float): Tolerance for identifying outliers during each iteration.
-    - pol (numpy.ndarray): Coefficients of the polynomial to fit.
-
-    Returns:
-    - ww (numpy.ndarray): Background-subtracted wave.
-    """
-
-    # Duplicate the input wave
-    bkg_data = np.copy(w)
-    mask = np.ones_like(w)
-    w_fit = np.nan
-    subtract = np.zeros_like(w)
-
-    # Initialize mask
-    mask[0:n] = 0
-    mask[m:-1] = 0
-
-    # Perform iterative curve fitting
-    ii = 0
-    while ii < b:
-        w_fit = np.polyval(pol, bkg_data)
-        indx = np.where((w - w_fit) > tol)[0]
-        mask[indx] = 0
-        ii += 1
-
-    # Calculate coefficients and subtract from the original wave
-    w_coef = np.polyfit(np.arange(len(w)), bkg_data, len(pol) - 1)
-    for i in range(len(w_coef)):
-        subtract += w_coef[i] * np.arange(len(w))**i
-
-    # Create the background-subtracted wave
-    ww = w - subtract
-
-    return ww
-
-# Example usage:
-# Assume 'w' is a NumPy array, 'n', 'm', 'b', 'tol', and 'pol' are variables.
-# You can replace these with your actual data.
-# result_wave = find_background4(w, n, m, b, tol, pol)
-
-
-
 #%% 785nm MLAGG dark counts
 
-particle = my_h5['PT_lab']
+particle = dark_h5['PT_lab']
 
 
 # Add all SERS spectra to powerseries list in order
@@ -270,7 +201,7 @@ keys = natsort.natsorted(keys)
 powerseries = []
 dark_powerseries = []
 for key in keys:
-    if 'new_dark_powerseries' in key:
+    if 'dark_powerseries' in key:
         powerseries.append(particle[key])
         
 for i, spectrum in enumerate(powerseries):
@@ -282,99 +213,38 @@ for i, spectrum in enumerate(powerseries):
     spectrum.x = spectrum.x * coarse_stretch
     spectrum.truncate(start_x = truncate_range[0], end_x = truncate_range[1])
     spectrum.x = wn_cal
-    spectrum.y = spt.remove_cosmic_rays(spectrum.y)
+    spectrum.y = spt.remove_cosmic_rays(spectrum.y, threshold = 0.1, cutoff = 1500, fs = 60000)
     powerseries[i] = spectrum
     
 dark_powerseries = powerseries
 
-dark_powerseries = np.insert(dark_powerseries,np.arange(1,16,1), dark_powerseries[0])
+fig, ax = plt.subplots(1,1,figsize=[12,9])
+ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
+ax.set_ylabel('SERS Intensity (cts/mW/s)')
+
+for spectrum in dark_powerseries:
+    ax.plot(spectrum.x, spectrum.y)
+
+dark_powerseries = np.insert(dark_powerseries,np.arange(1,11,1), dark_powerseries[0])
+
+dark_powerseries = dark_powerseries[0:16]
 
 # List of powers used, for colormaps
 
 powers_list = []
-colors_list = np.arange(0,15,1)
+# colors_list = np.arange(0,15,1)
 
 for spectrum in dark_powerseries:
     powers_list.append(spectrum.laser_power)
     print(spectrum.cycle_time)
     
+powers_list[14] = 3.2
     
-#%% Plot single powerseries for single MLAgg spot 785
-
-particle_list = ['Particle_0']
-
-
-for j, particle in enumerate(particle_list):
-    particle = my_h5['ParticleScannerScan_2'][particle]
-    particle_name = 'Particle_' + str(j)
-    
-    # Add all SERS spectra to powerseries list in order
-    
-    keys = list(particle.keys())
-    keys = natsort.natsorted(keys)
-    powerseries = []
-    
-    for key in keys:
-        if 'SERS' in key:
-            powerseries.append(particle[key])
-    
-    
-    fig, ax = plt.subplots(1,1,figsize=[12,9])
-    ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
-    ax.set_ylabel('Normalized SERS Intensity (a.u.)')
-    
-    for i, spectrum in enumerate(powerseries):
-        
-        ## x-axis truncation, calibration
-        spectrum = SERS.SERS_Spectrum(spectrum)
-        spectrum.x = spt.wl_to_wn(spectrum.x, 785)
-        spectrum.x = spectrum.x + coarse_shift
-        spectrum.x = spectrum.x * coarse_stretch
-        spectrum.truncate(start_x = truncate_range[0], end_x = truncate_range[1])
-        spectrum.x = wn_cal
-        spectrum.calibrate_intensity(R_setup = R_setup,
-                                      dark_counts = dark_powerseries[i].y,
-                                      exposure = spectrum.cycle_time)
-        
-        spectrum.y = spt.remove_cosmic_rays(spectrum.y)
-        spectrum.truncate(450, 1500)
-        #spectrum.y_baselined = spt.baseline_als(spectrum.y, 1e0, 1e-1, niter = 10)
-        #baseline = np.polyfit(spectrum.x, spectrum.y, 1)
-        #spectrum.y_baselined = spectrum.y - (spectrum.x * baseline[0] + baseline[1])
-        #spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined,cutoff = 3000, fs = 20000, order = 2)
-        spectrum.normalise(norm_y = spectrum.y)
-        
-        ## Plot
-        my_cmap = plt.get_cmap('inferno')
-        color = my_cmap(i/32)
-        offset = 0
-        spectrum.plot(ax = ax, plot_y = spectrum.y_norm + (i*offset), title = '785nm Powerseries - Co-TAPP-SMe 60nm MLAgg', linewidth = 1, color = color, label = np.round(spectrum.laser_power * 1000, 0), zorder = (19-i))
-        # avg_powerseries[i] += spectrum.y_norm
-    
-        ## Labeling & plotting
-        # ax.legend(fontsize = 18, ncol = 4, loc = 'upper center')
-        # ax.get_legend().set_title('Laser power ($\mu$W)')
-        # for line in ax.get_legend().get_lines():
-        #     line.set_linewidth(4.0)
-        fig.suptitle(particle.name)
-        powerseries[i] = spectrum
-        
-        ax.set_xlim(550, 1600)
-        # ax.set_ylim(0, 1.4)
-        plt.tight_layout(pad = 0.8)
-        
-        # save_dir = r'C:\Users\ishaa\OneDrive\Desktop\Offline Data\2023-11-21_MLAgg\785\Normalized\_'
-        # plt.savefig(save_dir + particle_name + '.svg', format = 'svg')
-        # plt.close(fig)
-        
-# ## Calculate average
-# for i in range(0, len(avg_powerseries)):
-#     avg_powerseries[i] = avg_powerseries[i]/len(particle_list)  
 
 #%% Testing background subtraction
 
 
-particle = my_h5['ParticleScannerScan_2']['Particle_0']
+particle = my_h5['ParticleScannerScan_1']['Particle_0']
 
 
 # Add all SERS spectra to powerseries list in order
@@ -392,7 +262,7 @@ ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
 ax.set_ylabel('SERS Intensity (cts/mW/s)')
 
 
-for i, spectrum in enumerate(powerseries[0:2]):
+for i, spectrum in enumerate(powerseries[0:10]):
     
 
     
@@ -408,16 +278,16 @@ for i, spectrum in enumerate(powerseries[0:2]):
                                   exposure = spectrum.cycle_time)
     
     spectrum.y = spt.remove_cosmic_rays(spectrum.y)
-    spectrum.truncate(450, 1500)
+    # spectrum.truncate(450, truncat)
     
     ## Baseline
     spectrum.baseline = spt.baseline_als(spectrum.y, 1e3, 1e-2, niter = 10)
     spectrum.y_baselined = spectrum.y - spectrum.baseline
     
     ## Plot raw, baseline, baseline subtracted
-    spectrum.plot(ax = ax, plot_y = (spectrum.y - spectrum.y.min()), title = '633nm Powerswitch', linewidth = 1, color = 'black', label = i, zorder = 30-i)
-    spectrum.plot(ax = ax, plot_y = spectrum.y_baselined , title = '633nm Powerswitch', linewidth = 1, color = 'purple', label = i, zorder = 30-i)
-    spectrum.plot(ax = ax, plot_y = spectrum.baseline- spectrum.y.min(), color = 'darkred', linewidth = 1)    
+    spectrum.plot(ax = ax, plot_y = (spectrum.y - spectrum.y.min()), linewidth = 1, color = 'black', label = i, zorder = 30-i)
+    spectrum.plot(ax = ax, plot_y = spectrum.y_baselined, linewidth = 1, color = 'purple', label = i, zorder = 30-i)
+    spectrum.plot(ax = ax, plot_y = spectrum.baseline - spectrum.y.min(), color = 'darkred', linewidth = 1)    
     
     ## Labeling & plotting
     # ax.legend(fontsize = 18, ncol = 5, loc = 'upper center')
@@ -434,7 +304,7 @@ for i, spectrum in enumerate(powerseries[0:2]):
     
 #%% Plot baseline-subtracted min powerseries & direct powerseries for each MLAGG spot
 
-scan_list = ['ParticleScannerScan_2']
+scan_list = ['ParticleScannerScan_1']
 
 avg_powerseries = np.zeros([len(dark_powerseries), len(spectrum.y)])
 avg_counter = 0
@@ -453,7 +323,7 @@ for particle_scan in scan_list:
     
     # Loop over particles in particle scan
     
-    for particle in particle_list[0:37]:
+    for particle in particle_list:
         avg_counter += 1
         particle_name = 'MLAgg_' + str(particle_scan) + '_' + particle
         particle = my_h5[particle_scan][particle]
@@ -469,14 +339,15 @@ for particle_scan in scan_list:
             if 'SERS' in key:
                 powerseries.append(particle[key])
         
+        powerseries = powerseries[0:16]
         
-        # fig, ax = plt.subplots(1,1,figsize=[12,9])
-        # ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
-        # ax.set_ylabel('SERS Intensity (cts/mW/s)')
+        fig, ax = plt.subplots(1,1,figsize=[12,9])
+        ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
+        ax.set_ylabel('SERS Intensity (cts/mW/s)')
         
-        # fig2, ax2 = plt.subplots(1,1,figsize=[12,9])
-        # ax2.set_xlabel('Raman Shifts (cm$^{-1}$)')
-        # ax2.set_ylabel('SERS Intensity (cts/mW/s)')
+        fig2, ax2 = plt.subplots(1,1,figsize=[12,9])
+        ax2.set_xlabel('Raman Shifts (cm$^{-1}$)')
+        ax2.set_ylabel('SERS Intensity (cts/mW/s)')
         
         powerseries_y = np.zeros((len(powerseries), len(spectrum.y)))
         
@@ -489,13 +360,16 @@ for particle_scan in scan_list:
             spectrum.x = spectrum.x * coarse_stretch
             spectrum.truncate(start_x = truncate_range[0], end_x = truncate_range[1])
             spectrum.x = wn_cal
+            if i == 14:
+                spectrum.laser_power = 3.2
+                print(spectrum.laser_power)
             spectrum.calibrate_intensity(R_setup = R_setup,
                                           dark_counts = dark_powerseries[i].y,
                                           exposure = spectrum.cycle_time,
                                           laser_power = spectrum.laser_power)
             
-            spectrum.y = spt.remove_cosmic_rays(spectrum.y)
-            spectrum.truncate(450, 1500)
+            # spectrum.y = spt.remove_cosmic_rays(spectrum.y, threshold = 10)
+            # spectrum.truncate(450, 1500)
             
             ## Baseline
             spectrum.baseline = spt.baseline_als(spectrum.y, 1e3, 1e-2, niter = 10)
@@ -504,69 +378,69 @@ for particle_scan in scan_list:
             # spectrum.normalise(norm_y = spectrum.y)
             avg_powerseries[i] += spectrum.y_baselined
             
-        #     # Plot min powerseries
+            # Plot min powerseries
             
-        #     my_cmap = plt.get_cmap('inferno')
-        #     color = my_cmap(i/32)
-        #     offset = 0
-        #     if i == 0:
-        #         previous_power = '0.0'
-        #     else:
-        #         previous_power = np.round(powerseries[i-1].laser_power * 1000, 0)
-        #     if spectrum.laser_power <= 0.0029:
-        #         spectrum.plot(ax = ax, plot_y = spectrum.y_baselined + (i*offset), title = '785nm Min Power Powerseries - Co-TAPP-SMe 60nm MLAgg', linewidth = 1, color = color, label = previous_power, zorder = (19-i))
+            my_cmap = plt.get_cmap('inferno')
+            color = my_cmap(i/16)
+            offset = 0
+            if i == 0:
+                previous_power = '0.0'
+            else:
+                previous_power = np.round(powerseries[i-1].laser_power * 1000, 0)
+            if spectrum.laser_power <= 0.0029:
+                spectrum.plot(ax = ax, plot_y = spectrum.y_baselined + (i*offset), title = '785nm Min Power Powerseries - Co-TAPP-SMe 60nm MLAgg', linewidth = 1, color = color, label = previous_power, zorder = (19-i))
+
+            ## Labeling & plotting
+            ax.legend(fontsize = 18, ncol = 5, loc = 'upper center')
+            ax.get_legend().set_title('Previous laser power ($\mu$W)')
+            for line in ax.get_legend().get_lines():
+                line.set_linewidth(4.0)
+            fig.suptitle(particle.name)
+            powerseries[i] = spectrum
+            
+            # ax.set_xlim(550, 1500)
+            # ax.set_ylim(-500, 13000)
+            plt.tight_layout(pad = 0.8)
         
-        #     ## Labeling & plotting
-        #     ax.legend(fontsize = 18, ncol = 5, loc = 'upper center')
-        #     ax.get_legend().set_title('Previous laser power ($\mu$W)')
-        #     for line in ax.get_legend().get_lines():
-        #         line.set_linewidth(4.0)
-        #     fig.suptitle(particle.name)
-        #     powerseries[i] = spectrum
             
-        #     ax.set_xlim(550, 1500)
-        #     ax.set_ylim(-500, 13000)
-        #     plt.tight_layout(pad = 0.8)
+            # Plot direct powerseries
+            
+            my_cmap = plt.get_cmap('inferno')
+            color = my_cmap(i/16)
+            offset = 0
+            if i%2 == 0:
+                spectrum.plot(ax = ax2, plot_y = spectrum.y_baselined + (i*offset), title = '785nm Direct Power Powerseries - Co-TAPP-SMe 60nm MLAgg', linewidth = 1, color = color, label = np.round(spectrum.laser_power * 1000, 0), zorder = (19-i))
         
+            ## Labeling & plotting
+            ax2.legend(fontsize = 18, ncol = 5, loc = 'upper center')
+            ax2.get_legend().set_title('Laser power ($\mu$W)')
+            for line in ax2.get_legend().get_lines():
+                line.set_linewidth(4.0)
+            fig2.suptitle(particle.name)
+            powerseries[i] = spectrum
             
-        #     # Plot direct powerseries
-            
-        #     my_cmap = plt.get_cmap('inferno')
-        #     color = my_cmap(i/32)
-        #     offset = 0
-        #     if i%2 == 0:
-        #         spectrum.plot(ax = ax2, plot_y = spectrum.y_baselined + (i*offset), title = '785nm Direct Power Powerseries - Co-TAPP-SMe 60nm MLAgg', linewidth = 1, color = color, label = np.round(spectrum.laser_power * 1000, 0), zorder = (19-i))
-        
-        #     ## Labeling & plotting
-        #     ax2.legend(fontsize = 18, ncol = 5, loc = 'upper center')
-        #     ax2.get_legend().set_title('Laser power ($\mu$W)')
-        #     for line in ax.get_legend().get_lines():
-        #         line.set_linewidth(4.0)
-        #     fig2.suptitle(particle.name)
-        #     powerseries[i] = spectrum
-            
-        #     ax2.set_xlim(550, 1500)
-        #     ax2.set_ylim(-500, 13000)
-        #     plt.tight_layout(pad = 0.8)
+            # ax2.set_xlim(550, 1500)
+            # ax2.set_ylim(-500, 13000)
+            plt.tight_layout(pad = 0.8)
             
             
-        #     # Plot timescan powerseries
+            # Plot timescan powerseries
             
-        #     powerseries_y[i] = spectrum.y_baselined
-        # powerseries_y = np.array(powerseries_y)
-        # timescan = SERS.SERS_Timescan(x = spectrum.x, y = powerseries_y, exposure = 1)
-        # fig3, (ax3) = plt.subplots(1, 1, figsize=[12,16])
-        # t_plot = np.arange(0,len(powerseries),1)
-        # v_min = powerseries_y.min()
-        # v_max = np.percentile(powerseries_y, 99.9)
-        # cmap = plt.get_cmap('inferno')
-        # ax3.set_yticklabels([])
-        # ax3.set_xlabel('Raman Shifts (cm$^{-1}$)', fontsize = 'large')
+            powerseries_y[i] = spectrum.y_baselined
+        powerseries_y = np.array(powerseries_y)
+        timescan = SERS.SERS_Timescan(x = spectrum.x, y = powerseries_y, exposure = 1)
+        fig3, (ax3) = plt.subplots(1, 1, figsize=[12,16])
+        t_plot = np.arange(0,len(powerseries),1)
+        v_min = powerseries_y.min()
+        v_max = np.percentile(powerseries_y, 99.9)
+        cmap = plt.get_cmap('inferno')
+        ax3.set_yticklabels([])
+        ax3.set_xlabel('Raman Shifts (cm$^{-1}$)', fontsize = 'large')
         # ax3.set_xlim(450,1500)
-        # ax3.set_title('785nm Powerseries' + 's\n' + str(particle_name), fontsize = 'x-large', pad = 10)
-        # pcm = ax3.pcolormesh(timescan.x, t_plot, powerseries_y, vmin = v_min, vmax = v_max, cmap = cmap, rasterized = 'True')
-        # clb = fig3.colorbar(pcm, ax=ax3)
-        # clb.set_label(label = 'SERS Intensity', size = 'large', rotation = 270, labelpad=30)
+        ax3.set_title('785nm Powerseries' + 's\n' + str(particle_name), fontsize = 'x-large', pad = 10)
+        pcm = ax3.pcolormesh(timescan.x, t_plot, powerseries_y, vmin = v_min, vmax = v_max, cmap = cmap, rasterized = 'True')
+        clb = fig3.colorbar(pcm, ax=ax3)
+        clb.set_label(label = 'SERS Intensity', size = 'large', rotation = 270, labelpad=30)
             
             
         # # Save plots
@@ -596,80 +470,80 @@ wn_cal_trunc = spectrum.x
 
 particle_name = 'MLAgg_Avg'
 
-# fig, ax = plt.subplots(1,1,figsize=[12,9])
-# ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
-# ax.set_ylabel('SERS Intensity (cts/mW/s)')
+fig, ax = plt.subplots(1,1,figsize=[12,9])
+ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
+ax.set_ylabel('SERS Intensity (cts/mW/s)')
 
-# fig2, ax2 = plt.subplots(1,1,figsize=[12,9])
-# ax2.set_xlabel('Raman Shifts (cm$^{-1}$)')
-# ax2.set_ylabel('SERS Intensity (cts/mW/s)')
+fig2, ax2 = plt.subplots(1,1,figsize=[12,9])
+ax2.set_xlabel('Raman Shifts (cm$^{-1}$)')
+ax2.set_ylabel('SERS Intensity (cts/mW/s)')
 
 for i, spectrum in enumerate(avg_powerseries):
-    
+      
     ## x-axis truncation, calibration
     spectrum = SERS.SERS_Spectrum(x = wn_cal_trunc, y = spectrum)
     spectrum.y_baselined = spectrum.y
     
-#     # Plot min powerseries
+    # Plot min powerseries
     
-#     my_cmap = plt.get_cmap('inferno')
-#     color = my_cmap(i/32)
-#     offset = 0
-#     if i == 0:
-#         previous_power = '0.0'
-#     else:
-#         previous_power = np.round(powers_list[i-1] * 1000, 0)
-#     if powers_list[i] <= 0.0029:
-#         spectrum.plot(ax = ax, plot_y = spectrum.y_baselined + (i*offset), title = '785nm Min Power Powerseries - Co-TAPP-SMe 60nm MLAgg', linewidth = 1, color = color, label = previous_power, zorder = (19-i))
+    my_cmap = plt.get_cmap('inferno')
+    color = my_cmap(i/16)
+    offset = 0
+    if i == 0:
+        previous_power = '0.0'
+    else:
+        previous_power = np.round(powers_list[i-1] * 1000, 0)
+    if powers_list[i] <= 0.0029:
+        spectrum.plot(ax = ax, plot_y = spectrum.y_baselined + (i*offset), title = '785nm Min Power Powerseries - Co-TAPP-SMe 60nm MLAgg', linewidth = 1, color = color, label = previous_power, zorder = (19-i))
 
-#     ## Labeling & plotting
-#     ax.legend(fontsize = 18, ncol = 5, loc = 'upper center')
-#     ax.get_legend().set_title('Previous laser power ($\mu$W)')
-#     for line in ax.get_legend().get_lines():
-#         line.set_linewidth(4.0)
-#     fig.suptitle(particle.name)
-#     powerseries[i] = spectrum
+    ## Labeling & plotting
+    ax.legend(fontsize = 18, ncol = 5, loc = 'upper center')
+    ax.get_legend().set_title('Previous laser power ($\mu$W)')
+    for line in ax.get_legend().get_lines():
+        line.set_linewidth(4.0)
+    fig.suptitle(particle_name)
+    # powerseries[i] = spectrum
     
 #     ax.set_xlim(550, 1500)
 #     ax.set_ylim(-500, 13000)
-#     plt.tight_layout(pad = 0.8)
+    plt.tight_layout(pad = 0.8)
 
     
-#     # Plot direct powerseries
+    # Plot direct powerseries
     
-#     my_cmap = plt.get_cmap('inferno')
-#     color = my_cmap(i/32)
-#     offset = 0
-#     if i%2 == 0:
-#         spectrum.plot(ax = ax2, plot_y = spectrum.y_baselined + (i*offset), title = '785nm Direct Power Powerseries - Co-TAPP-SMe 60nm MLAgg', linewidth = 1, color = color, label = np.round(powers_list[i] * 1000, 0), zorder = (19-i))
+    my_cmap = plt.get_cmap('inferno')
+    color = my_cmap(i/16)
+    offset = 0
+    if i%2 == 0:
+        spectrum.plot(ax = ax2, plot_y = spectrum.y_baselined + (i*offset), title = '785nm Direct Power Powerseries - Co-TAPP-SMe 60nm MLAgg', linewidth = 1, color = color, label = np.round(powers_list[i] * 1000, 0), zorder = (19-i))
 
-#     ## Labeling & plotting
-#     ax2.legend(fontsize = 18, ncol = 5, loc = 'upper center')
-#     ax2.get_legend().set_title('Laser power ($\mu$W)')
-#     for line in ax.get_legend().get_lines():
-#         line.set_linewidth(4.0)
-#     fig2.suptitle(particle.name)    
-#     ax2.set_xlim(550, 1500)
-#     ax2.set_ylim(-500, 13000)
-#     plt.tight_layout(pad = 0.8)
+    ## Labeling & plotting
+    ax2.legend(fontsize = 18, ncol = 5, loc = 'upper center')
+    ax2.get_legend().set_title('Laser power ($\mu$W)')
+    for line in ax.get_legend().get_lines():
+        line.set_linewidth(4.0)
+    fig2.suptitle(particle_name)    
+    # ax2.set_xlim(550, 1500)
+    # ax2.set_ylim(-500, 13000)
+    plt.tight_layout(pad = 0.8)
     
-#     # Plot timescan powerseries
+    # Plot timescan powerseries
     
-#     powerseries_y[i] = spectrum.y_baselined
-# powerseries_y = np.array(powerseries_y)
-# timescan = SERS.SERS_Timescan(x = spectrum.x, y = powerseries_y, exposure = 1)
-# fig3, (ax3) = plt.subplots(1, 1, figsize=[12,16])
-# t_plot = np.arange(0,len(powerseries),1)
-# v_min = powerseries_y.min()
-# v_max = np.percentile(powerseries_y, 99.9)
-# cmap = plt.get_cmap('inferno')
-# ax3.set_yticklabels([])
-# ax3.set_xlabel('Raman Shifts (cm$^{-1}$)', fontsize = 'large')
+    powerseries_y[i] = spectrum.y_baselined
+powerseries_y = np.array(powerseries_y)
+timescan = SERS.SERS_Timescan(x = spectrum.x, y = powerseries_y, exposure = 1)
+fig3, (ax3) = plt.subplots(1, 1, figsize=[12,16])
+t_plot = np.arange(0,len(powerseries),1)
+v_min = powerseries_y.min()
+v_max = np.percentile(powerseries_y, 99.9)
+cmap = plt.get_cmap('inferno')
+ax3.set_yticklabels([])
+ax3.set_xlabel('Raman Shifts (cm$^{-1}$)', fontsize = 'large')
 # ax3.set_xlim(450,1500)
-# ax3.set_title('785nm Powerseries' + 's\n' + str(particle_name), fontsize = 'x-large', pad = 10)
-# pcm = ax3.pcolormesh(timescan.x, t_plot, powerseries_y, vmin = v_min, vmax = v_max, cmap = cmap, rasterized = 'True')
-# clb = fig3.colorbar(pcm, ax=ax3)
-# clb.set_label(label = 'SERS Intensity', size = 'large', rotation = 270, labelpad=30)
+ax3.set_title('785nm Powerseries' + 's\n' + str(particle_name), fontsize = 'x-large', pad = 10)
+pcm = ax3.pcolormesh(timescan.x, t_plot, powerseries_y, vmin = v_min, vmax = v_max, cmap = cmap, rasterized = 'True')
+clb = fig3.colorbar(pcm, ax=ax3)
+clb.set_label(label = 'SERS Intensity', size = 'large', rotation = 270, labelpad=30)
     
 # # Save plots
 
@@ -688,7 +562,7 @@ for i, spectrum in enumerate(avg_powerseries):
 # plt.close(fig)
 # print('Powerseries Timescan')
 
-#%% Testing peak fitting for MLAgg Avg
+#%% Peak fitting for MLAgg Avg
 
 def gauss(x: np.ndarray, a: float, mu: float, sigma: float, b: float) -> np.ndarray:
     return (
@@ -794,11 +668,12 @@ def single_gauss(start, stop):
         # ax.plot(X, gauss(X, *popt), label='fit')
         # ax.legend()
         # plt.show()
-        if powers_list[i] > 0.0029:
-            my_cmap = plt.get_cmap('inferno')
-            color = my_cmap(i/32)
-            ax.plot(X, Y, color = color, linewidth = 1)
-            ax.plot(X, gauss(X, *popt), color = color, linewidth = 1, linestyle = 'dashed')
+        # if powers_list[i] > 0.0029:
+        my_cmap = plt.get_cmap('inferno')
+        color = my_cmap(i/16)
+        ax.plot(X, Y, color = color, linewidth = 1)
+        ax.plot(X, gauss(X, *popt), color = color, linewidth = 1, linestyle = 'dashed', label = powers_list[i])
+        # ax.legend()
     
         fit.append(popt)
         
@@ -806,30 +681,28 @@ def single_gauss(start, stop):
     return fit
     
 
-peak_1 = single_gauss(start = 1090, stop = 1140)
-peak_2 = single_gauss(start = 1250, stop = 1310)
-peak_3 = single_gauss(start = 970, stop = 1012)
+peak_1 = single_gauss(start = 1150, stop = 1200)
+peak_2 = single_gauss(start = 1330, stop = 1365)
+peak_3 = single_gauss(start = 1580, stop = 1600)
 
-#%% Plot peak positions and amplitudes of MLAgg Avg
+
+#%% Plot peak amplitude v. power of MLAgg Avg
 
 # Plot peak amplitude v. power
 
 particle_name = 'MLAgg_Avg'
 
-# fig, ax = plt.subplots(1,1,figsize=[12,9])
-# ax.set_xlabel('Scan No.', size = 'large')
-# ax.set_ylabel('Peak Intensity', size = 'large')
-# # ax2 = ax.twinx() 
-# # ax2.set_ylabel('Peak Ratio 1425/1405', size = 'large', rotation = 270, labelpad = 30)
-# # ax.set_xticks(np.linspace(0,18,10))
-# scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
-# ax.plot(scan, peak_1[:,0], marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1120 cm$^{-1}$', zorder = 2)
-# ax.plot(scan, peak_2[:,0], marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2)  
-# ax.plot(scan, peak_3[:,0], marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1000 cm$^{-1}$', zorder = 2)        
+fig, ax = plt.subplots(1,1,figsize=[12,9])
+ax.set_xlabel('Scan No.', size = 'large')
+ax.set_ylabel('Peak Intensity', size = 'large')
+scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
+ax.plot(scan, peak_1[:,0], marker = 'o', markersize = 6, color = 'green', linewidth = 1, label = '1175 cm$^{-1}$', zorder = 2)
+ax.plot(scan, peak_2[:,0], marker = 'o', markersize = 6, color = 'darkorange', linewidth = 1, label = '1350 cm$^{-1}$', zorder = 2)  
+ax.plot(scan, peak_3[:,0], marker = 'o', markersize = 6, color = 'darkblue', linewidth = 1, label = '1600 cm$^{-1}$', zorder = 2)        
 
-# ax.legend()
-# fig.suptitle('785nm Powerseries - Peak Amplitude - Full Powerseries', fontsize = 'large')
-# ax.set_title(particle_name)
+ax.legend()
+fig.suptitle('785nm Powerseries - Peak Amplitude - Full Powerseries', fontsize = 'large')
+ax.set_title('BPT MLAgg Avg')
 
 # ## Save plot
 # save_dir = get_directory(particle_name)
@@ -839,54 +712,115 @@ particle_name = 'MLAgg_Avg'
 
 # # Plot peak amplitude v. power - low power only
 
-# particle_name = 'MLAgg_Avg'
-
 fig, ax = plt.subplots(1,1,figsize=[12,9])
 ax.set_xlabel('Previous Laser Power', size = 'large')
 ax.set_ylabel('Peak Intensity', size = 'large')
-# ax.set_xscale('log')
+ax.set_xscale('log')
 # ax.set_yscale('log')
-# ax2 = ax.twinx() 
-# ax2.set_ylabel('Peak Ratio 1425/1405', size = 'large', rotation = 270, labelpad = 30)
-# ax.set_xticks(np.linspace(0,18,10))
 scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
-ax.plot(powers_list[0::2], peak_1[1::2,0], marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1120 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], peak_2[1::2,0], marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], peak_3[1::2,0], marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1000 cm$^{-1}$', zorder = 2)
-ax.legend()
+ax.plot(powers_list[0:14:2], peak_1[1:15:2,0], marker = 'o', markersize = 6, color = 'green', linewidth = 1, label = '1175 cm$^{-1}$', zorder = 2)
+ax.plot(powers_list[0:14:2], peak_2[1:15:2,0], marker = 'o', markersize = 6, color = 'darkorange', linewidth = 1, label = '1350 cm$^{-1}$', zorder = 2)
+ax.plot(powers_list[0:14:2], peak_3[1:15:2,0], marker = 'o', markersize = 6, color = 'darkblue', linewidth = 1, label = '1600 cm$^{-1}$', zorder = 2)
+ax.legend(loc = 'upper left')
 fig.suptitle('785nm Powerseries - Peak Amplitude - Min Powerseries', fontsize = 'large')
-ax.set_title(particle_name)
+ax.set_title('BPT MLAgg Avg')
+ax.set_ylim(15000,90000)
 
 # ## Save plot
 # save_dir = get_directory(particle_name)
 # plt.savefig(save_dir + particle_name + 'Peak Amplitude Min Powerseries' + '.svg', format = 'svg')
 # plt.close(fig)
-            
-#%%
-# Plot peak amplitude v. power - direct powerseries
 
-particle_name = 'MLAgg_Avg'
+
+# # Plot peak amplitude v. power - direct powerseries
 
 fig, ax = plt.subplots(1,1,figsize=[12,9])
 ax.set_xlabel('Laser Power', size = 'large')
 ax.set_ylabel('Peak Intensity', size = 'large')
 ax.set_xscale('log')
-# ax2 = ax.twinx() 
-# ax2.set_ylabel('Peak Ratio 1425/1405', size = 'large', rotation = 270, labelpad = 30)
-# ax.set_xticks(np.linspace(0,18,10))
 scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
-ax.plot(powers_list[0::2], peak_1[0::2,0], marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1120 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], peak_2[0::2,0], marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], peak_3[0::2,0], marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1000 cm$^{-1}$', zorder = 2)
+ax.plot(powers_list[0::2], peak_1[0::2,0], marker = 'o', markersize = 6, color = 'green', linewidth = 1, label = '1175 cm$^{-1}$', zorder = 2)
+ax.plot(powers_list[0::2], peak_2[0::2,0], marker = 'o', markersize = 6, color = 'darkorange', linewidth = 1, label = '1350 cm$^{-1}$', zorder = 2)
+ax.plot(powers_list[0::2], peak_3[0::2,0], marker = 'o', markersize = 6, color = 'darkblue', linewidth = 1, label = '1600 cm$^{-1}$', zorder = 2)
 ax.legend()
 fig.suptitle('785nm Powerseries - Peak Amplitude - Direct Powerseries', fontsize = 'large')
-ax.set_title(particle_name)
+ax.set_title('BPT MLAgg Avg')
 
-# Save plot
+# ## Save plot
 # save_dir = get_directory(particle_name)
 # plt.savefig(save_dir + particle_name + 'Peak Amplitude Direct Powerseries' + '.svg', format = 'svg')
 # plt.close(fig)
+
+
+#%% Plot %change peak amplitude v. power of MLAgg Avg
+
+dp1 = (peak_1[:,0] - peak_1[0,0])/peak_1[0,0] * 100
+dp2 = (peak_2[:,0] - peak_2[0,0])/peak_2[0,0] * 100
+dp3 = (peak_3[:,0] - peak_3[0,0])/peak_3[0,0] * 100
+
+# Plot peak amplitude v. power
+
+particle_name = 'MLAgg_Avg'
+
+fig, ax = plt.subplots(1,1,figsize=[12,9])
+ax.set_xlabel('Scan No.', size = 'large')
+ax.set_ylabel('$\Delta_{Intensity}$ (%)', size = 'large')
+scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
+ax.plot(scan, dp1, marker = 'o', markersize = 6, color = 'green', linewidth = 1, label = '1175 cm$^{-1}$', zorder = 2)
+ax.plot(scan, dp2, marker = 'o', markersize = 6, color = 'darkorange', linewidth = 1, label = '1350 cm$^{-1}$', zorder = 2)  
+ax.plot(scan, dp3, marker = 'o', markersize = 6, color = 'darkblue', linewidth = 1, label = '1600 cm$^{-1}$', zorder = 2)        
+
+ax.legend()
+fig.suptitle('785nm Powerseries - % Change Peak Amplitude - Full Powerseries', fontsize = 'large')
+ax.set_title('BPT MLAgg Avg')
+
+# ## Save plot
+# save_dir = get_directory(particle_name)
+# plt.savefig(save_dir + particle_name + 'Change Peak Amplitude Full Powerseries' + '.svg', format = 'svg')
+# plt.close(fig)
+
+
+# Plot peak amplitude v. power - low power only
+
+fig, ax = plt.subplots(1,1,figsize=[12,9])
+ax.set_xlabel('Previous Laser Power', size = 'large')
+ax.set_ylabel('$\Delta_{Intensity}$ (%)', size = 'large')
+ax.set_xscale('log')
+scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
+ax.plot(powers_list[0:14:2], dp1[1:15:2], marker = 'o', markersize = 6, color = 'green', linewidth = 1, label = '1175 cm$^{-1}$', zorder = 2)
+ax.plot(powers_list[0:14:2], dp2[1:15:2], marker = 'o', markersize = 6, color = 'darkorange', linewidth = 1, label = '1350 cm$^{-1}$', zorder = 2)
+ax.plot(powers_list[0:14:2], dp3[1:15:2], marker = 'o', markersize = 6, color = 'darkblue', linewidth = 1, label = '1600 cm$^{-1}$', zorder = 2)
+ax.legend(loc = 'upper left')
+fig.suptitle('785nm Powerseries - % Change Peak Amplitude - Min Powerseries', fontsize = 'large')
+ax.set_title('BPT MLAgg Avg')
+
+# ## Save plot
+# save_dir = get_directory(particle_name)
+# plt.savefig(save_dir + particle_name + 'Change Peak Amplitude Min Powerseries' + '.svg', format = 'svg')
+# plt.close(fig)
+
+
+# Plot peak amplitude v. power - direct powerseries
+
+fig, ax = plt.subplots(1,1,figsize=[12,9])
+ax.set_xlabel('Laser Power', size = 'large')
+ax.set_ylabel('$\Delta_{Intensity}$ (%)', size = 'large')
+ax.set_xscale('log')
+scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
+ax.plot(powers_list[0::2], dp1[0::2], marker = 'o', markersize = 6, color = 'green', linewidth = 1, label = '1175 cm$^{-1}$', zorder = 2)
+ax.plot(powers_list[0::2], dp2[0::2], marker = 'o', markersize = 6, color = 'darkorange', linewidth = 1, label = '1350 cm$^{-1}$', zorder = 2)
+ax.plot(powers_list[0::2], dp3[0::2], marker = 'o', markersize = 6, color = 'darkblue', linewidth = 1, label = '1600 cm$^{-1}$', zorder = 2)
+ax.legend()
+fig.suptitle('785nm Powerseries - % Change Peak Amplitude - Direct Powerseries', fontsize = 'large')
+ax.set_title('BPT MLAgg Avg')
+
+# ## Save plot
+# save_dir = get_directory(particle_name)
+# plt.savefig(save_dir + particle_name + 'Change Peak Amplitude Direct Powerseries' + '.svg', format = 'svg')
+# plt.close(fig)
             
+#%% Plot peak position v. power
+
 
 # Plot peak position v. power
 
@@ -900,13 +834,12 @@ fig, ax = plt.subplots(1,1,figsize=[12,9])
 ax.set_xlabel('Scan No.', size = 'large')
 ax.set_ylabel('Peak Position Change (cm$^{-1}$)', size = 'large')
 scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
-ax.plot(scan, dp1, marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1120 cm$^{-1}$', zorder = 2)
-ax.plot(scan, dp2, marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2)  
-ax.plot(scan, dp3, marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1000 cm$^{-1}$', zorder = 2)        
-# ax.plot(scan[0::2], dp3[0::2], marker = 'x', markersize = 6, color = 'blue', linewidth = 0, label = '1000 cm$^{-1}$', zorder = 3)        
+ax.plot(scan, dp1, marker = 'o', markersize = 6, color = 'green', linewidth = 1, label = '1175 cm$^{-1}$', zorder = 2)
+ax.plot(scan, dp2, marker = 'o', markersize = 6, color = 'darkorange', linewidth = 1, label = '1350 cm$^{-1}$', zorder = 2)  
+ax.plot(scan, dp3, marker = 'o', markersize = 6, color = 'darkblue', linewidth = 1, label = '1600 cm$^{-1}$', zorder = 2)        
 ax.legend()
 fig.suptitle('785nm Powerseries - Peak Position - Full Powerseries', fontsize = 'large')
-ax.set_title(particle_name)
+ax.set_title('BPT MLAgg Avg')
 
 # ## Save plot
 # save_dir = get_directory(particle_name)
@@ -922,16 +855,13 @@ fig, ax = plt.subplots(1,1,figsize=[12,9])
 ax.set_xlabel('Previous Laser Power', size = 'large')
 ax.set_ylabel('Peak Position Change (cm$^{-1}$)', size = 'large')
 ax.set_xscale('log')
-# ax2 = ax.twinx() 
-# ax2.set_ylabel('Peak Ratio 1425/1405', size = 'large', rotation = 270, labelpad = 30)
-# ax.set_xticks(np.linspace(0,18,10))
 scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
-ax.plot(powers_list[0::2], dp1[1::2], marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1120 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp2[1::2], marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp3[1::2], marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1000 cm$^{-1}$', zorder = 2)
+ax.plot(powers_list[0::2], dp1[1::2], marker = 'o', markersize = 6, color = 'green', linewidth = 1, label = '1175 cm$^{-1}$', zorder = 2)
+ax.plot(powers_list[0::2], dp2[1::2], marker = 'o', markersize = 6, color = 'darkorange', linewidth = 1, label = '1350 cm$^{-1}$', zorder = 2)
+ax.plot(powers_list[0::2], dp3[1::2], marker = 'o', markersize = 6, color = 'darkblue', linewidth = 1, label = '1600 cm$^{-1}$', zorder = 2)
 ax.legend()
 fig.suptitle('785nm Powerseries - Peak Position - Min Powerseries', fontsize = 'large')
-ax.set_title(particle_name)
+ax.set_title('BPT MLAgg Avg')
 
 # ## Save plot
 # save_dir = get_directory(particle_name)
@@ -947,18 +877,15 @@ fig, ax = plt.subplots(1,1,figsize=[12,9])
 ax.set_xlabel('Laser Power', size = 'large')
 ax.set_ylabel('Peak Position Change (cm$^{-1}$)', size = 'large')
 ax.set_xscale('log')
-# ax2 = ax.twinx() 
-# ax2.set_ylabel('Peak Ratio 1425/1405', size = 'large', rotation = 270, labelpad = 30)
-# ax.set_xticks(np.linspace(0,18,10))
 scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
-ax.plot(powers_list[0::2], dp1[0::2], marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1120 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp2[0::2], marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp3[0::2], marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1000 cm$^{-1}$', zorder = 2)
+ax.plot(powers_list[0::2], dp1[0::2], marker = 'o', markersize = 6, color = 'green', linewidth = 1, label = '1175 cm$^{-1}$', zorder = 2)
+ax.plot(powers_list[0::2], dp2[0::2], marker = 'o', markersize = 6, color = 'darkorange', linewidth = 1, label = '1350 cm$^{-1}$', zorder = 2)
+ax.plot(powers_list[0::2], dp3[0::2], marker = 'o', markersize = 6, color = 'darkblue', linewidth = 1, label = '1600 cm$^{-1}$', zorder = 2)
 ax.legend()
 fig.suptitle('785nm Powerseries - Peak Position - Direct Powerseries', fontsize = 'large')
-ax.set_title(particle_name)
+ax.set_title('BPT MLAgg Avg')
 
-## Save plot
+# ## Save plot
 # save_dir = get_directory(particle_name)
 # plt.savefig(save_dir + particle_name + 'Peak Position Direct Powerseries' + '.svg', format = 'svg')
 # plt.close(fig)
