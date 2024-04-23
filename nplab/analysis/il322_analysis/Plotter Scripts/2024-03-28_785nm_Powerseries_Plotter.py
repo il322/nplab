@@ -73,7 +73,7 @@ class Peak():
 #%% h5 files
 
 ## Load raw data h5
-my_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\2024-03-28_785nm_Powerseries_KineticScan.h5")
+my_h5 = h5py.File(r"C:\Users\ishaa\OneDrive\Desktop\Offline Data\2024-03-28_785nm_Powerseries_KineticScan.h5")
 
 
 
@@ -208,7 +208,7 @@ def get_directory(particle_name):
 
 #%% 785nm MLAGG dark counts
 
-dark_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\2024-03-26_785_dark_powerseries.h5")
+dark_h5 = h5py.File(r"C:\Users\ishaa\OneDrive\Desktop\Offline Data\2024-03-26_785_dark_powerseries.h5")
 particle = dark_h5['PT_lab']
 
 
@@ -422,7 +422,7 @@ for i, spectrum in enumerate(powerseries):
     spectrum.y = spectrum.y/(len(particles)-1)
     spectrum.baseline = spectrum.baseline/(len(particles)-1)
     spectrum.y_baselined = spectrum.y_baselined/(len(particles)-1)
-
+  
 #%% Plot min powerseries, direct powerseries, and timescan powerseries for each particle
 
     
@@ -436,7 +436,7 @@ def plot_min_powerseries(particle, save = False):
     powerseries = particle.powerseries
     powerseries_y = particle.powerseries_y
     
-    fig, ax = plt.subplots(1,1,figsize=[18,9])
+    fig, ax = plt.subplots(1,1,figsize=[18,12])
     ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
     ax.set_ylabel('SERS Intensity (cts/mW/s)')
     
@@ -457,7 +457,7 @@ def plot_min_powerseries(particle, save = False):
         for line in ax.get_legend().get_lines():
             line.set_linewidth(4.0)
         fig.suptitle(particle.name)
-        ax.set_xlim(1250, 1350)
+        ax.set_xlim(450, 1800)
         ax.set_ylim(-500, powerseries_y.max() * 1.3)
         fig.tight_layout(pad = 0.8)
     
@@ -491,7 +491,7 @@ def plot_direct_powerseries(particle, save = False):
         for line in ax2.get_legend().get_lines():
             line.set_linewidth(4.0)
         fig2.suptitle(particle.name)
-        ax2.set_xlim(450, 1700)
+        ax2.set_xlim(450, 1800)
         ax2.set_ylim(-500, powerseries_y.max() * 1.3)
         fig2.tight_layout(pad = 0.8)
     
@@ -532,7 +532,7 @@ def plot_timescan_powerseries(particle, save = False):
 
 # Loop over all particles and plot
 
-for particle in tqdm(particles[0:1], leave = True):
+for particle in tqdm(particles, leave = True):
     
     ## Get all specrta into single array for timescan
     powerseries_y = np.zeros((len(particle.powerseries), len(particle.powerseries[0].y)))
@@ -563,14 +563,14 @@ powerseries = particle.powerseries
 spectrum = powerseries[0]
 spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 4000, fs = 30000)
 peak_fits, properties = scipy.signal.find_peaks(spectrum.y_smooth,
-                                height=spectrum.y_smooth.max()/10,
-                                threshold=None,
-                                distance=10,
-                                prominence=1000,
-                                width=5,
-                                wlen=None,
-                                rel_height=0.5,
-                                plateau_size=None)
+                                height=spectrum.y_smooth.max()/30,
+                                threshold = None,
+                                distance = 1,
+                                prominence = 0.1,
+                                width = 0.1,
+                                wlen = None,
+                                rel_height = 0.5,
+                                plateau_size = None)
 
 peaks = []
 for i, peak in enumerate(peak_fits):
@@ -579,18 +579,28 @@ for i, peak in enumerate(peak_fits):
     height = properties['peak_heights'][i]
     sigma = width/2.35
     area =  height * sigma * (2*np.pi)**(1/2)   
+    b = (spectrum.y_smooth[properties['right_bases'][i]] + spectrum.y_smooth[properties['left_bases'][i]])/2
     this_peak = Peak(mu = mu,
                      height = height,
                      width = width,
                      sigma = sigma, 
                      area = area)
     this_peak.x = wn_cal
-    this_peak.y = gauss(wn_cal, a = area, mu = mu, sigma = sigma, b = 0)
+    this_peak.y = gauss(wn_cal, a = area, mu = mu, sigma = sigma, b = b)
     
     peaks.append(this_peak)
 
+## Load into initial fit array for later ifr fitting
 
-# Curve fit each found peak, using scipy.find_peaks() results as initial guess
+initial_fit = []
+for i, peak in enumerate(peaks):
+    this_fit = np.zeros(3)
+    this_fit[0] = peak.height
+    this_fit[1] = peak.width
+    this_fit[2] = peak.sigma
+    initial_fit.append(peak.mu)
+
+# # Curve fit each found peak, using scipy.find_peaks() results as initial guess
 
 # for i, peak in enumerate(peaks):
     
@@ -625,12 +635,347 @@ for i, peak in enumerate(peak_fits):
 fig, ax = plt.subplots(1,1,figsize=[18,9])
 ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
 ax.set_ylabel('SERS Intensity (cts/mW/s)')
+fig.suptitle('Scipy.find_peaks()')
 ax.plot(wn_cal, spectrum.y_smooth, color = (0,0,0,0.5), linewidth = 1)
 for i,peak in enumerate(peaks):
-    ax.plot(wn_cal, peak.y, linewidth = 2, linestyle = 'dashed')
+    ax.plot(wn_cal[properties['left_bases'][i]:properties['right_bases'][i]], peak.y[properties['left_bases'][i]:properties['right_bases'][i]], linewidth = 2, linestyle = 'dashed')
     ax.scatter(peak.mu, peak.height, s = 100)
     # ax.scatter(old_peaks[i].mu, old_peaks[i].height)
-# ax.set_xlim(1400,1450)
+ax.set_xlim(1300,1500)
+
+
+#%% Test afr
+
+    
+particle = particles[32]
+powerseries = particle.powerseries
+spectrum = powerseries[0]
+spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 4000, fs = 30000)
+
+import nplab.analysis.SERS_Fitting.Auto_Fit_Raman as afr
+
+x = afr.Run(spectrum.y_smooth, wn_cal, Width = 0.1, Smoothing_Factor=1, Noise_Threshold = 1)
+
+
+fig, ax = plt.subplots(1,1,figsize=[18,9])
+ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
+ax.set_ylabel('SERS Intensity (cts/mW/s)')
+fig.suptitle('Auto Fit Raman')
+ax.plot(wn_cal, spectrum.y_smooth, color = (0,0,0,0.5), linewidth = 1)
+
+for i,peak in enumerate(x[0]):
+    ax.scatter(spectrum.x[int(x[1][i])], x[0][i])
+    # ax.scatter(old_peaks[i].mu, old_peaks[i].height)
+# ax.set_xlim(1350,1600)
+
+#%% Test ifr
+
+
+fit_range = [250,450]
+particle = particles[32]
+powerseries = particle.powerseries
+spectrum = powerseries[0]
+spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 4000, fs = 30000)
+plt.plot(spectrum.x[fit_range[0]:fit_range[1]], spectrum.y_smooth[fit_range[0]:fit_range[1]])
+
+
+start = time.time()
+import nplab.analysis.SERS_Fitting.Iterative_Raman_Fitting as ifr
+
+x = ifr.Run(spectrum.x[fit_range[0]:fit_range[1]], Signal = spectrum.y_smooth[fit_range[0]:fit_range[1]], Regions=5, Peak_Type='L', Maximum_FWHM=100, Minimum_Width_Factor=0.1)#, Initial_Fit=initial_fit_new)
+finish = time.time()
+print(finish - start)
+
+x = x[0].reshape(-1,3)
+
+
+y  = []
+for i, this_peak in enumerate(x):
+    height = x[i][0]
+    mu = x[i][1]
+    sigma = x[i][2]
+    area =  height * sigma * (2*np.pi)**(1/2) 
+    b = 0
+    y.append(gauss(wn_cal, a = area, mu = mu, sigma = sigma, b = b))
+
+fig, ax = plt.subplots(1,1,figsize=[18,9])
+ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
+ax.set_ylabel('SERS Intensity (cts/mW/s)')
+fig.suptitle('Iterative Fit Raman')
+ax.plot(wn_cal, spectrum.y_smooth, color = (0,0,0,0.5), linewidth = 1)
+
+for i,peak in enumerate(x):
+    ax.scatter(x[i][1], x[i][0], marker = 'x', s = 100)
+    ax.plot(spectrum.x, y[i])
+# ax.set_xlim(1130,1410)
+
+#%% Test spectrum_tools.approx_peak_gausses
+
+
+fit_range = [350,450]
+particle = particles[32]
+powerseries = particle.powerseries
+spectrum = powerseries[0]
+spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 4000, fs = 30000)
+plt.plot(spectrum.x[fit_range[0]:fit_range[1]], spectrum.y_smooth[fit_range[0]:fit_range[1]])
+residuals = []
+thresholds = []
+
+
+x = spt.approx_peak_gausses(spectrum.x[fit_range[0]:fit_range[1]], spectrum.y_smooth[fit_range[0]:fit_range[1]], smooth_first=False, plot= False, height_frac = 0.5, threshold=0.2)
+# x = height, centre, sigma, height_frac
+y  = []
+
+for i, this_peak in enumerate(x):
+    height = x[i][0]
+    mu = x[i][1]
+    sigma = width
+    area =  height * sigma * (2*np.pi)**(1/2) 
+    b = 0
+    y.append(gauss(wn_cal, a = area, mu = mu, sigma = sigma, b = b))
+
+y = np.array(y)
+y_tot = y.sum(axis = 0)
+
+# Plot
+
+fig, ax = plt.subplots(1,1,figsize=[18,9])
+ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
+ax.set_ylabel('SERS Intensity (cts/mW/s)')
+fig.suptitle(str(frac))
+ax.plot(wn_cal, spectrum.y_smooth, color = (0,0,0,0.5), linewidth = 1)
+for i,peak in enumerate(peaks):
+    # ax.plot(wn_cal[properties['left_bases'][i]:properties['right_bases'][i]], peak.y[properties['left_bases'][i]:properties['right_bases'][i]], linewidth = 2, linestyle = 'dashed')
+    # ax.scatter(peak.mu, peak.height, s = 100)
+    try:
+        ax.scatter(x[i][1], x[i][0], marker = 'x', s = 100)
+        ax.plot(wn_cal, y[i], linewidth = 2)
+    except:
+        pass
+    # ax.scatter(old_peaks[i].mu, old_peaks[i].height)
+  
+
+ax.set_xlim(spectrum.x[fit_range[0]],spectrum.x[fit_range[1]])
+
+ax.plot(wn_cal, y_tot, color = 'red')
+ax.plot(wn_cal, spectrum.y_smooth - y_tot, linestyle = '--', color = 'black')
+    
+print(frac)
+print(np.sum(spectrum.y_smooth - y_tot))
+residuals.append(np.abs(y_tot) - spectrum.y_smooth)
+thresholds.append(frac) 
+thresholds = np.array(thresholds)
+
+
+#%% Adopting approx_peak_gausses to use lorentzian
+
+def lorentzian(x, height, center, fwhm):
+    I = height
+    x0 = center
+    gamma = fwhm/2
+    numerator = gamma**2
+    denominator = (x - x0)**2 + gamma**2
+    quot = numerator/denominator
+    
+    y = I*quot
+    return y
+
+from nplab.analysis.general_spec_tools.spectrum_tools import detect_minima
+from nplab.analysis.general_spec_tools.spectrum_tools import detect_maxima
+
+
+def approx_peak_lorentzians(x, y, smooth_first = False, threshold = 0.1, reverse = False, plot = False, height_frac = 0.5, **kwargs):
+    '''
+    Estimates FW{height_frac}M, center and height of peaks in a dataset
+        height_frac defaults to 0.5 (i.e. FWHM), but can be raised or lowered to suit the spectral shape
+
+    smooth: smooth spectrum before analysis; default = True (good for NPoM DF, Aggregate Extinction etc)
+    reverse: optionally reverses the x and y arrays before analysis
+    '''
+    #y_raw = y.copy()
+    #y = y/y.max()#normalise before analysis
+    
+    if smooth_first == True:#smooth spectrum before analysing; default = True
+        y = butter_lowpass_filt_filt(y)
+        
+    if reverse == True:#optionally reverse spectrum before analysing
+        x = x[::-1]
+        y = y[::-1]
+        if peak_index is not None:#flip peak index position accordingly
+            peak_index = -peak_index
+
+    y_temp = y.copy()
+    approx_gausses = []
+
+    n = 0
+    while True:
+        maxima = detect_maxima(y_temp, lower_threshold = threshold*y.max(), edges = True)
+
+        if len(maxima) == 0:
+            break
+
+        maxima = np.array(sorted(maxima, key = lambda i: x[i]))
+        residuals = []
+        temp_gausses = []
+
+        for peak_index in maxima:
+            #peak_index = maxima[-1]
+            height = y_temp[peak_index]
+            center = x[peak_index] #corresponding x and y locations of maximum
+            width_height = height*height_frac
+            
+            y_sub = y_temp - width_height #difference between y and half max
+            
+            y_diff_mins = detect_minima(abs(y_sub), upper_threshold = y.max()*1e-2)#find where y_sub crosses 0
+
+            diff_mins_left = y_diff_mins[y_diff_mins < peak_index]
+            diff_mins_right = y_diff_mins[y_diff_mins > peak_index]
+
+            if len(diff_mins_left) > 0:
+                windex_left = diff_mins_left[-1]
+                width_left = abs(center - x[windex_left])
+                y_left = y_temp[windex_left:peak_index]
+                x_left = x[windex_left:peak_index]
+                g_left = lorentzian(x_left, height, center, width_left*2)
+                residual_left = np.std(g_left - y_left)/height
+
+                if plot == True:
+                    plt.plot(x[windex_left], y_temp[windex_left], 'r.', zorder = 100)
+
+            else:
+                width_left = np.inf
+                residual_left = np.inf
+
+            if len(diff_mins_right) > 0:
+                windex_right = diff_mins_right[0]
+                width_right = abs(center - x[windex_right])
+                y_right = y_temp[peak_index:windex_right]
+                x_right = x[peak_index:windex_right]
+                g_right = lorentzian(x_right, height, center, width_right*2)
+                residual_right = np.std(g_right - y_right)/height
+
+                if plot == True:
+                    plt.plot(x[windex_right], y_temp[windex_right], 'r.', zorder = 100)
+
+            else:
+                width_right = np.inf
+                residual_right = np.inf
+
+            residual = min([residual_left, residual_right])
+            width = min([width_left, width_right])*2
+
+            if plot == True:
+                plt.plot(x, y_temp)
+                plt.plot(x, abs(y_sub), 'k--', alpha = 0.6)
+                plt.plot(center, height, 'o')
+
+                #if np.isfinite(fwhm):
+                gauss_approx = lorentzian(x, height, center, width)
+                ls = '--'
+
+                plt.plot(x, gauss_approx, ls)
+
+                #plt.plot(x, abs(y_sub))
+                plt.plot(x[y_diff_mins], y_temp[y_diff_mins], 'ko')
+                plt.title(f'Iteration {n}; {center:.2f}; {residual:.2e}')
+                #plt.legend(title = 'center & residual', loc = 'center left', bbox_to_anchor = (1, 0.5))
+                plt.show()
+
+            residuals.append(residual)
+            temp_gausses.append((height, center, width, height_frac))
+
+        min_residual, chosen_gauss_params = sorted(zip(residuals, temp_gausses), key = lambda r_g: r_g[0])[0]
+        height, center, width, height_frac = chosen_gauss_params
+    
+        if plot == True:
+            plt.plot(x, y_temp)
+            plt.plot(center, height, 'ko')
+
+            for peak_index, residual, gauss_params in zip(maxima, residuals, temp_gausses):
+                gauss_approx = lorentzian(x, *gauss_params)
+                ls = '--'
+                if gauss_params == chosen_gauss_params:
+                    ls = 'k--'
+                plt.plot(x, gauss_approx, ls, label = f'{x[peak_index]:.1f}; {residual:.2e}')
+
+            #plt.plot(x, abs(y_sub))
+            plt.title(f'Iteration {n}')
+            plt.legend(title = 'center & residual', loc = 'center left', bbox_to_anchor = (1, 0.5))
+            plt.show()
+
+        approx_gausses.append(chosen_gauss_params)
+
+        gauss_approx = lorentzian(x, *chosen_gauss_params[0:3])
+        y_temp -= gauss_approx
+        n += 1
+
+    if plot == True:
+        print(f'{len(approx_gausses)} peaks found')
+        plt.plot(x, y)
+        for g_n, (height, center, width, height_frac) in enumerate(approx_gausses):
+            gauss_approx = lorentzian(x, height, center, width, height_frac)
+            plt.plot(x, gauss_approx, '--', label = f'g_{g_n}')
+
+        plt.title('Final')
+        plt.show()
+
+    return approx_gausses
+
+
+
+fit_range = [350,450]
+particle = particles[32]
+powerseries = particle.powerseries
+spectrum = powerseries[0]
+spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 4000, fs = 30000)
+plt.plot(spectrum.x[fit_range[0]:fit_range[1]], spectrum.y_smooth[fit_range[0]:fit_range[1]])
+residuals = []
+thresholds = []
+
+
+x = approx_peak_lorentzians(spectrum.x[fit_range[0]:fit_range[1]], spectrum.y_smooth[fit_range[0]:fit_range[1]], smooth_first=False, plot= False, height_frac = 0.5, threshold=0.2)
+# x = height, centre, sigma, height_frac
+y  = []
+
+for i, this_peak in enumerate(x):
+    height = x[i][0]
+    mu = x[i][1]
+    sigma = width/2.35
+    area =  height * sigma * (2*np.pi)**(1/2) 
+    b = 0
+    y.append(lorentzian(wn_cal, height = height, center = mu, fwhm = width))
+
+y = np.array(y)
+y_tot = y.sum(axis = 0)
+
+# Plot
+
+fig, ax = plt.subplots(1,1,figsize=[18,9])
+ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
+ax.set_ylabel('SERS Intensity (cts/mW/s)')
+fig.suptitle(str(frac))
+ax.plot(wn_cal, spectrum.y_smooth, color = (0,0,0,0.5), linewidth = 1)
+for i,peak in enumerate(peaks):
+    # ax.plot(wn_cal[properties['left_bases'][i]:properties['right_bases'][i]], peak.y[properties['left_bases'][i]:properties['right_bases'][i]], linewidth = 2, linestyle = 'dashed')
+    # ax.scatter(peak.mu, peak.height, s = 100)
+    try:
+        ax.scatter(x[i][1], x[i][0], marker = 'x', s = 100)
+        ax.plot(wn_cal, y[i], linewidth = 2)
+    except:
+        pass
+    # ax.scatter(old_peaks[i].mu, old_peaks[i].height)
+
+
+ax.set_xlim(spectrum.x[fit_range[0]],spectrum.x[fit_range[1]])
+
+ax.plot(wn_cal, y_tot, color = 'red')
+ax.plot(wn_cal, spectrum.y_smooth - y_tot, linestyle = '--', color = 'black')
+
+# print(frac)
+# print(np.sum(spectrum.y_smooth - y_tot))
+# residuals.append(np.sum(spectrum.y_smooth - y_tot))
+# thresholds.append(frac)
+    
 
 
 #%% Fit peaks for all particles
@@ -812,10 +1157,10 @@ ax.legend(loc = 'upper right')
 fig.suptitle('785nm Powerseries - Peak Amplitude - Min Powerseries', fontsize = 'large')
 ax.set_title('Co-TAPP-SMe MLAgg Avg')
 
-## Save plot
-save_dir = get_directory(particle_name)
-plt.savefig(save_dir + particle_name + 'Peak Amplitude Min Powerseries' + '.svg', format = 'svg')
-plt.close(fig)
+# ## Save plot
+# save_dir = get_directory(particle_name)
+# plt.savefig(save_dir + particle_name + 'Peak Amplitude Min Powerseries' + '.svg', format = 'svg')
+# plt.close(fig)
 
 #%%
 # Plot peak amplitude v. power - direct powerseries
@@ -833,10 +1178,10 @@ ax.legend()
 fig.suptitle('785nm Powerseries - Peak Amplitude - Direct Powerseries', fontsize = 'large')
 ax.set_title('Co-TAPP-SMe MLAgg Avg')
 
-## Save plot
-save_dir = get_directory(particle_name)
-plt.savefig(save_dir + particle_name + 'Peak Amplitude Direct Powerseries' + '.svg', format = 'svg')
-plt.close(fig)
+# ## Save plot
+# save_dir = get_directory(particle_name)
+# plt.savefig(save_dir + particle_name + 'Peak Amplitude Direct Powerseries' + '.svg', format = 'svg')
+# plt.close(fig)
 
 
 #%% Plot %change peak amplitude v. power of MLAgg Avg
@@ -886,10 +1231,10 @@ ax.legend(loc = 'upper right')
 fig.suptitle('785nm Powerseries - % Change Peak Amplitude - Min Powerseries', fontsize = 'large')
 ax.set_title('Co-TAPP-SMe MLAgg Avg')
 
-## Save plot
-save_dir = get_directory(particle_name)
-plt.savefig(save_dir + particle_name + 'Change Peak Amplitude Min Powerseries' + '.svg', format = 'svg')
-plt.close(fig)
+# ## Save plot
+# save_dir = get_directory(particle_name)
+# plt.savefig(save_dir + particle_name + 'Change Peak Amplitude Min Powerseries' + '.svg', format = 'svg')
+# plt.close(fig)
 
 #%%
 # Plot peak amplitude v. power - direct powerseries
@@ -907,10 +1252,10 @@ ax.legend()
 fig.suptitle('785nm Powerseries - % Change Peak Amplitude - Direct Powerseries', fontsize = 'large')
 ax.set_title('Co-TAPP-SMe MLAgg Avg')
 
-## Save plot
-save_dir = get_directory(particle_name)
-plt.savefig(save_dir + particle_name + 'Change Peak Amplitude Direct Powerseries' + '.svg', format = 'svg')
-plt.close(fig)
+# ## Save plot
+# save_dir = get_directory(particle_name)
+# plt.savefig(save_dir + particle_name + 'Change Peak Amplitude Direct Powerseries' + '.svg', format = 'svg')
+# plt.close(fig)
 
 
 
@@ -989,10 +1334,10 @@ ax.legend()
 fig.suptitle('785nm Powerseries - Peak Position - Full Powerseries', fontsize = 'large')
 ax.set_title('Co-TAPP-SMe MLAgg Avg')
 
-## Save plot
-save_dir = get_directory(particle_name)
-plt.savefig(save_dir + particle_name + 'Peak Position Full Powerseries' + '.svg', format = 'svg')
-plt.close(fig)
+# ## Save plot
+# save_dir = get_directory(particle_name)
+# plt.savefig(save_dir + particle_name + 'Peak Position Full Powerseries' + '.svg', format = 'svg')
+# plt.close(fig)
 #%%
 
 # # Plot peak pos v. power - low power only
@@ -1012,10 +1357,10 @@ ax.legend()
 fig.suptitle('785nm Powerseries - Peak Position - Min Powerseries', fontsize = 'large')
 ax.set_title('Co-TAPP-SMe MLAgg Avg')
 
-## Save plot
-save_dir = get_directory(particle_name)
-plt.savefig(save_dir + particle_name + 'Peak Position Min Powerseries' + '.svg', format = 'svg')
-plt.close(fig)
+# ## Save plot
+# save_dir = get_directory(particle_name)
+# plt.savefig(save_dir + particle_name + 'Peak Position Min Powerseries' + '.svg', format = 'svg')
+# plt.close(fig)
             
 #%%
 # Plot peak pos v. power - direct powerseries
@@ -1035,7 +1380,7 @@ ax.legend()
 fig.suptitle('785nm Powerseries - Peak Position - Direct Powerseries', fontsize = 'large')
 ax.set_title('Co-TAPP-SMe MLAgg Avg')
 
-## Save plot
-save_dir = get_directory(particle_name)
-plt.savefig(save_dir + particle_name + 'Peak Position Direct Powerseries' + '.svg', format = 'svg')
-plt.close(fig)
+# ## Save plot
+# save_dir = get_directory(particle_name)
+# plt.savefig(save_dir + particle_name + 'Peak Position Direct Powerseries' + '.svg', format = 'svg')
+# plt.close(fig)
