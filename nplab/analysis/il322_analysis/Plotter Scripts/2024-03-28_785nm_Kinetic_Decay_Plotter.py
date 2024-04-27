@@ -5,8 +5,7 @@ Created on Thu Jan 25 11:23:15 2024
 @author: il322
 
 
-Plotter for Co-TAPP-SMe 785nm SERS Powerseries, using it to experiment with different SERS fitting methods
-
+Plotter for Co-TAPP-SMe 785nm SERS Kinetic Scan and SERS decay statistics
 
 Data: 2024-03-28_785nm-Powerseries-KineticScan_NIR-Objective_Test.h5
 
@@ -67,14 +66,12 @@ class Peak():
         self.sigma = sigma
         self.area = area
         self.mu = mu
-            
 
 
 #%% h5 files
 
 ## Load raw data h5
-my_h5 = h5py.File(r"C:\Users\ishaa\OneDrive\Desktop\Offline Data\2024-03-28_785nm_Powerseries_KineticScan.h5")
-
+my_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\2024-03-28_785nm-Powerseries-KineticScan_NIR-Objective_Test.h5")
 
 
 #%% Spectral calibration
@@ -119,25 +116,6 @@ ref_wn[3] = bpt_ref_no_notch.x[371]
 ## Find calibrated wavenumbers
 wn_cal = cal.calibrate_spectrum(bpt_ref_no_notch, ref_wn, lit_spectrum = lit_spectrum, lit_wn = lit_wn, linewidth = 1, deg = 2)
 bpt_ref.x = wn_cal
-
-## Save to h5
-# try:
-#     save_h5.create_group('calibration')
-# except:
-#     pass
-# save_group = save_h5['calibration']
-
-# fig, ax = plt.subplots(1,1,figsize=[12,9])
-# ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
-# ax.set_ylabel('SERS Intensity (cts/mW/s)')
-# ax.plot(bpt_ref.x, bpt_ref.y, color = 'pink')
-
-# # img = fig2img(fig)
-
-
-# # dset = save_h5.create_dataset('BPT_ref', data = img)
-
-# # dset.attrs["DISPLAY_ORIGIN"] = np.string_("UL")
 
 
 #%% Spectral efficiency white light calibration
@@ -197,7 +175,7 @@ Using a white_bkg of -100000 flattens it out...
 
 def get_directory(particle_name):
         
-    directory_path = r'C:\Users\il322\Desktop\Offline Data\2024-03-28 Analysis\_' + particle_name + '\\'
+    directory_path = r'C:\Users\il322\Desktop\Offline Data\2024-03-28 Analysis v2\_' + particle_name + '\\'
     
     if not os.path.exists(directory_path):
         os.makedirs(directory_path)
@@ -208,112 +186,107 @@ def get_directory(particle_name):
 
 #%% 785nm MLAGG dark counts
 
-dark_h5 = h5py.File(r"C:\Users\ishaa\OneDrive\Desktop\Offline Data\2024-03-26_785_dark_powerseries.h5")
-particle = dark_h5['PT_lab']
+particle = my_h5['PT_lab']
 
-
-# Add all SERS spectra to powerseries list in order
-
-keys = list(particle.keys())
-keys = natsort.natsorted(keys)
-powerseries = []
-dark_powerseries = []
-for key in keys:
-    if 'new_dark_powerseries' in key:
-        powerseries.append(particle[key])
+spectrum = particle['dark_counts_5s_0']
         
-for i, spectrum in enumerate(powerseries):
-    
-    ## x-axis truncation, calibration
-    spectrum = SERS.SERS_Spectrum(spectrum)
-    spectrum.x = spt.wl_to_wn(spectrum.x, 785)
-    spectrum.x = spectrum.x + coarse_shift
-    spectrum.x = spectrum.x * coarse_stretch
-    spectrum.truncate(start_x = truncate_range[0], end_x = truncate_range[1])
-    spectrum.x = wn_cal
-    spectrum.y = spt.remove_cosmic_rays(spectrum.y, threshold = 10, cutoff = 50)
-    powerseries[i] = spectrum
-    
-dark_powerseries = powerseries
 
+## x-axis truncation, calibration
+spectrum = SERS.SERS_Spectrum(spectrum)
+spectrum.x = spt.wl_to_wn(spectrum.x, 785)
+spectrum.x = spectrum.x + coarse_shift
+spectrum.x = spectrum.x * coarse_stretch
+spectrum.truncate(start_x = truncate_range[0], end_x = truncate_range[1])
+spectrum.x = wn_cal
+spectrum.y_cosmic = spectrum.y
+spectrum.y = spt.remove_cosmic_rays(spectrum.y, threshold = 5, cutoff = 1000, fs = 60000)
+
+dark_spectrum = spectrum
+
+## Plot
 fig, ax = plt.subplots(1,1,figsize=[12,9])
 ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
 ax.set_ylabel('Counts')
+my_cmap = plt.get_cmap('inferno')
+color = my_cmap(0/15)
+ax.plot(spectrum.x, spectrum.y_cosmic, color = color, alpha = 0.5)
+ax.plot(spectrum.x, spectrum.y, linestyle = '--', color = color)
 
-for i, spectrum in enumerate(dark_powerseries):
-    my_cmap = plt.get_cmap('inferno')
-    color = my_cmap(i/15)
-    ax.plot(spectrum.x, spectrum.y, color = color, alpha = 0.5)
-    # ax.plot(spectrum.x, spectrum.y_cosmic, linestyle = '--', color = color)
-    ax.set_ylim(0,1000)
-
-dark_powerseries = np.insert(dark_powerseries, np.arange(1,len(dark_powerseries)+1,1), dark_powerseries[0])
-
-## List of powers used, for colormaps
-powers_list = []
-for spectrum in dark_powerseries:
-    powers_list.append(spectrum.laser_power)
-    print(spectrum.cycle_time)
-    
 
 #%% Testing background subtraction
 
 
-particle = my_h5['ParticleScannerScan_3']['Particle_0']
-
-
-# Add all SERS spectra to powerseries list in order
+particle = my_h5['ParticleScannerScan_5']['Particle_40']
+chunk_size = 1
 
 keys = list(particle.keys())
 keys = natsort.natsorted(keys)
-powerseries = []
-
 for key in keys:
     if 'SERS' in key:
-        powerseries.append(particle[key])
+        
+        timescan = particle[key]
+            
+        ## x-axis truncation, calibration
+        timescan = SERS.SERS_Timescan(timescan, exposure = timescan.attrs['cycle_time'])
+        timescan.x = spt.wl_to_wn(timescan.x, 785)
+        timescan.x = timescan.x + coarse_shift
+        timescan.x = timescan.x * coarse_stretch
+        timescan.truncate(start_x = truncate_range[0], end_x = truncate_range[1])
+        timescan.x = wn_cal
+        timescan.calibrate_intensity(R_setup = R_setup,
+                                      dark_counts = dark_spectrum.y,
+                                      exposure = timescan.exposure,
+                                      laser_power = timescan.laser_power)
+
+        timescan.chunk(chunk_size)
+        timescan.Y = timescan.Y/chunk_size
+
+
+        fig, (ax) = plt.subplots(1, 1, figsize=[12,16])
+        t_plot = np.linspace(0,len(timescan.Y)*timescan.exposure,len(timescan.Y))
+        v_min = timescan.Y.min()
+        v_max = np.percentile(timescan.Y, 99.9)
+        cmap = plt.get_cmap('inferno')
+        ax.set_yticklabels([])
+        ax.set_xlabel('Raman Shifts (cm$^{-1}$)', fontsize = 'large')
+        ax.set_xlim(460,1800)
+        ax.set_ylabel('Time (s)', fontsize = 'large')
+        ax.set_yticks(np.linspace(0,len(timescan.Y)*timescan.exposure,11))
+        ax.set_yticklabels(np.linspace(0,len(timescan.Y)*timescan.exposure,11).astype('int'))
+        ax.set_title('785nm Timescan - Laser Power: ' + str(np.round(timescan.laser_power*1000,1)) + '$\mu$W\n', fontsize = 'x-large', pad = 10)
+        pcm = ax.pcolormesh(timescan.x, t_plot, timescan.Y, vmin = v_min, vmax = v_max, cmap = cmap, rasterized = 'True')
+        clb = fig.colorbar(pcm, ax=ax)
+        clb.set_label(label = 'SERS Intensity', size = 'large', rotation = 270, labelpad=30)
+        # print(particle_name)
+
 
 fig, ax = plt.subplots(1,1,figsize=[12,9])
 ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
 ax.set_ylabel('SERS Intensity (cts/mW/s)')
 
 
-for i, spectrum in enumerate(powerseries[0:len(powerseries):2]):
-  
-    ## x-axis truncation, calibration
-    spectrum = SERS.SERS_Spectrum(spectrum)
-    spectrum.x = spt.wl_to_wn(spectrum.x, 785)
-    spectrum.x = spectrum.x + coarse_shift
-    spectrum.x = spectrum.x * coarse_stretch
-    spectrum.truncate(start_x = truncate_range[0], end_x = truncate_range[1])
-    spectrum.x = wn_cal
-    spectrum.calibrate_intensity(R_setup = R_setup,
-                                  dark_counts = dark_powerseries[i].y,
-                                  exposure = spectrum.cycle_time)
-    
-    spectrum.y = spt.remove_cosmic_rays(spectrum.y)
-    # spectrum.truncate(450, 1500)
+spectrum = SERS.SERS_Spectrum(x = wn_cal, y = timescan.Y[0])
 
-    ## Baseline
-    spectrum.baseline = spt.baseline_als(spectrum.y, 1e3, 1e-2, niter = 10)
-    spectrum.y_baselined = spectrum.y - spectrum.baseline
+spectrum.baseline = spt.baseline_als(spectrum.y, 1e3, 1e-2, niter = 10)
+spectrum.y_baselined = spectrum.y - spectrum.baseline
     
-    ## Plot raw, baseline, baseline subtracted
-    offset = 0
-    spectrum.plot(ax = ax, plot_y = (spectrum.y - spectrum.y.min()) + (i*offset), linewidth = 1, color = 'black', label = i, zorder = 30-i)
-    spectrum.plot(ax = ax, plot_y = spectrum.y_baselined + (i*offset), linewidth = 1, color = 'purple', label = i, zorder = 30-i)
-    spectrum.plot(ax = ax, plot_y = spectrum.baseline- spectrum.y.min() + (i*offset), title = 'Background Subtraction Test', color = 'darkred', linewidth = 1)    
+## Plot raw, baseline, baseline subtracted
+offset = 0
+i = 0
+spectrum.plot(ax = ax, plot_y = (spectrum.y - spectrum.y.min()) + (i*offset), linewidth = 1, color = 'black', label = i, zorder = 30-i)
+spectrum.plot(ax = ax, plot_y = spectrum.y_baselined + (i*offset), linewidth = 1, color = 'purple', label = i, zorder = 30-i)
+spectrum.plot(ax = ax, plot_y = spectrum.baseline- spectrum.y.min() + (i*offset), title = 'Background Subtraction Test', color = 'darkred', linewidth = 1)    
     
-    ## Labeling & plotting
-    # ax.legend(fontsize = 18, ncol = 5, loc = 'upper center')
-    # ax.get_legend().set_title('Scan No.')
-    # for line in ax.get_legend().get_lines():
-    #     line.set_linewidth(4.0)
-    fig.suptitle(particle.name)
-    powerseries[i] = spectrum
-    
-    # ax.set_xlim(1200, 1700)
-    # ax.set_ylim(0, powerseries[].y_baselined.max() * 1.5)
-    plt.tight_layout(pad = 0.8)
+## Labeling & plotting
+# ax.legend(fontsize = 18, ncol = 5, loc = 'upper center')
+# ax.get_legend().set_title('Scan No.')
+# for line in ax.get_legend().get_lines():
+#     line.set_linewidth(4.0)
+fig.suptitle(particle.name)
+# powerseries[i] = spectrum
+# ax.set_xlim(1200, 1700)
+# ax.set_ylim(-50000, 1.2e6)
+plt.tight_layout(pad = 0.8)
     
 
 #%% Get all particles to analyze into Particle class with h5 locations and in a list
@@ -321,7 +294,7 @@ for i, spectrum in enumerate(powerseries[0:len(powerseries):2]):
 
 particles = []
 
-scan_list = ['ParticleScannerScan_3']
+scan_list = ['ParticleScannerScan_5']
 
 # Loop over particles in target particle scan
 
@@ -348,10 +321,10 @@ for particle_scan in scan_list:
 
 # Make avg particle
 
-avg_particle = Particle()
-avg_particle.h5_address = particles[0].h5_address
-avg_particle.name = 'MLAgg_Avg'    
-particles.append(avg_particle)
+# avg_particle = Particle()
+# avg_particle.h5_address = particles[0].h5_address
+# avg_particle.name = 'MLAgg_Avg'    
+# particles.append(avg_particle)
 
 #%% Add & process SERS powerseries for each particle
 
@@ -388,16 +361,46 @@ def process_powerseries(particle):
         powerseries[i] = spectrum
 
     return powerseries
+
+def process_timescan(particle):
+    
+    ## Add all SERS spectra to powerseries list in order
+    keys = list(particle.h5_address.keys())
+    keys = natsort.natsorted(keys)
+    for key in keys:
+        if 'SERS' in key:
+            
+            timescan = particle.h5_address[key]
+                
+            ## x-axis truncation, calibration
+            timescan = SERS.SERS_Timescan(timescan, exposure = timescan.attrs['cycle_time'])
+            timescan.x = spt.wl_to_wn(timescan.x, 785)
+            timescan.x = timescan.x + coarse_shift
+            timescan.x = timescan.x * coarse_stretch
+            timescan.truncate(start_x = truncate_range[0], end_x = truncate_range[1])
+            timescan.x = wn_cal
+            timescan.calibrate_intensity(R_setup = R_setup,
+                                          dark_counts = dark_spectrum.y,
+                                          exposure = timescan.exposure,
+                                          laser_power = timescan.laser_power)
+            for i, spectrum in tqdm(enumerate(timescan.Y), leave = True):
+                spectrum = spt.remove_cosmic_rays(spectrum, threshold = 9)
+                # spectrum_baseline = spt.baseline_als(spectrum, 1e3, 1e-2, niter = 10)
+                timescan.Y[i] = spectrum
+                # timescan.normalise(norm_y = timescan.y_baselined)
+            timescan.plot_timescan()
+            return timescan
     
 
 # Loop over all particles
 
-for particle in tqdm(particles, leave = True):
+for particle in tqdm(particles[0:1], leave = True):
     
-    powerseries = process_powerseries(particle)
-    particle.powerseries = powerseries
+    timescan = process_timescan(particle)
+    particle.timescan = timescan
 
 
+#%%
 # Calculate average powerseries of all particles
 
 avg_particle = particles[len(particles)-1]
@@ -540,8 +543,8 @@ for particle in tqdm(particles, leave = True):
         powerseries_y[i] = spectrum.y_baselined
     particle.powerseries_y = np.array(powerseries_y)
     
-    plot_min_powerseries(particle)
-    plot_direct_powerseries(particle)
+    # plot_min_powerseries(particle)
+    # plot_direct_powerseries(particle)
     plot_timescan_powerseries(particle)
 
 

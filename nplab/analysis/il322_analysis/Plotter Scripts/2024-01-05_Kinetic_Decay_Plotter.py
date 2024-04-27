@@ -307,7 +307,6 @@ for key in keys:
         ## Add timescan chunks to improve S/N
         chunk_size = 1
         new_y = timescan_chunk(timescan, chunk_size)
-        timescan = SERS.SERS_Timescan(x = timescan.x, y = new_y, exposure = timescan.cycle_time * chunk_size)
         timescan.laser_power = laser_power
         
         ## Process timescan
