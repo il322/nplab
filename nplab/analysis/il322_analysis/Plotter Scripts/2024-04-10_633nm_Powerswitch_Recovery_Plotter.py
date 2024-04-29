@@ -56,7 +56,6 @@ from lmfit.models import GaussianModel
 
 class Particle(): 
     def __init__(self):
-        self.peaks = np.zeros((20,5)) 
         self.name = None
 
 class Peak():
@@ -71,7 +70,7 @@ class Peak():
 #%% h5 files
 
 ## Load raw data h5
-my_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\2024-04-10_633nm-BPT-MLAgg-Powerseries_633nm-Co-TAPP-SMe_MLAgg-Powerswitch_CCD-Flatness.h5")
+my_h5 = h5py.File(r"C:\Users\ishaa\OneDrive\Desktop\Offline Data\2024-04-10_633nm-BPT-MLAgg-Powerseries_633nm-Co-TAPP-SMe_MLAgg-Powerswitch_CCD-Flatness.h5")
 
 
 #%% Spectral calibration
@@ -92,7 +91,7 @@ notch_range = [(70 + coarse_shift) * coarse_stretch, (128 + coarse_shift) * coar
 truncate_range = [notch_range[1] + 50, None] # Truncate range for all spectra on this calibration - Add 50 to take out notch slope
 
 ## Convert to wn
-bpt_ref.x = spt.wl_to_wn(bpt_ref.x, 633)
+bpt_ref.x = spt.wl_to_wn(bpt_ref.x, 632.8)
 bpt_ref.x = bpt_ref.x + coarse_shift
 bpt_ref.x = bpt_ref.x * coarse_stretch
 
@@ -124,7 +123,7 @@ white_ref = my_h5['ref_meas']['white_scatt_x5']
 white_ref = SERS.SERS_Spectrum(white_ref.attrs['wavelengths'], white_ref[2], title = 'White Scatterer')
 
 ## Convert to wn
-white_ref.x = spt.wl_to_wn(white_ref.x, 633)
+white_ref.x = spt.wl_to_wn(white_ref.x, 632.8)
 white_ref.x = white_ref.x + coarse_shift
 white_ref.x = white_ref.x * coarse_stretch
 
@@ -144,7 +143,7 @@ white_ref.truncate(start_x = truncate_range[0], end_x = truncate_range[1])
 
 
 ## Convert back to wl for efficiency calibration
-white_ref.x = spt.wn_to_wl(white_ref.x, 785)
+white_ref.x = spt.wn_to_wl(white_ref.x, 632.8)
 
 
 # Calculate R_setup
@@ -175,7 +174,7 @@ Using a white_bkg of -100000 flattens it out...
 
 def get_directory(particle_name):
         
-    directory_path = r'C:\Users\il322\Desktop\Offline Data\2024-04-10 633nm Powerswitch Recovery Analysis\_' + particle_name + '\\'
+    directory_path = r'C:\Users\ishaa\OneDrive\Desktop\Offline Data\2024-04-10_633nm Powerswitch Recovery Analysis\_' + particle_name + '\\'
     
     if not os.path.exists(directory_path):
         os.makedirs(directory_path)
@@ -209,7 +208,7 @@ for i, spectrum in enumerate(powerseries):
     elif i == 1:
         spectrum.cycle_time = 1.111109972000122
         spectrum.laser_power = 0.08999999999999998
-    spectrum.x = spt.wl_to_wn(spectrum.x, 633)
+    spectrum.x = spt.wl_to_wn(spectrum.x, 632.8)
     spectrum.x = spectrum.x + coarse_shift
     spectrum.x = spectrum.x * coarse_stretch
     spectrum.truncate(start_x = truncate_range[0], end_x = truncate_range[1])
@@ -231,7 +230,7 @@ for i, spectrum in enumerate(dark_powerseries):
     ax.set_ylim(0,1000)
 
 
-## Duplicate dark powersweries to match regular powerseries
+## Duplicate dark powerseries to match regular powerseries
 particle = my_h5['ParticleScannerScan_3']['Particle_0']
 keys = list(particle.keys())
 keys = natsort.natsorted(keys)
@@ -239,20 +238,52 @@ powerseries = []
 for key in keys:
     if 'SERS' in key:
         powerseries.append(particle[key])
-
 while len(dark_powerseries) < len(powerseries):
     dark_powerseries.append(dark_powerseries[0])
     dark_powerseries.append(dark_powerseries[1])
     
 ## List of powers used, for colormaps
-powers_list = []
+# powers_list = []
 # for spectrum in dark_powerseries:
     # powers_list.append(spectrum.laser_power)
     # print(spectrum.cycle_time)
     
+    
+# Plot dark subtracted as test
+
+particle = my_h5['ParticleScannerScan_3']['Particle_0']
+
+## Add all SERS spectra to powerseries list in order
+keys = list(particle.keys())
+keys = natsort.natsorted(keys)
+powerseries = []
+for key in keys:
+    if 'SERS' in key:
+        powerseries.append(particle[key])
+
+fig, ax = plt.subplots(1,1,figsize=[12,9])
+ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
+ax.set_ylabel('SERS Intensity (cts/mW/s)')
+
+## Process and plot
+for i, spectrum in enumerate(powerseries[2:4]):
+  
+    ## x-axis truncation, calibration
+    spectrum = SERS.SERS_Spectrum(spectrum)
+    spectrum.x = spt.wl_to_wn(spectrum.x, 632.8)
+    spectrum.x = spectrum.x + coarse_shift
+    spectrum.x = spectrum.x * coarse_stretch
+    spectrum.truncate(start_x = truncate_range[0], end_x = truncate_range[1])
+    spectrum.x = wn_cal
+    
+    ## Plot raw, baseline, baseline subtracted
+    offset = 2000
+    spectrum.plot(ax = ax, plot_y = spectrum.y + (i*offset), linewidth = 1, color = 'black', label = i, zorder = 30-i)
+    spectrum.plot(ax = ax, plot_y = (spectrum.y - dark_powerseries[i].y) + (i*offset), linewidth = 1, color = 'darkgreen', label = i, zorder = 30-i)
+    dark_powerseries[i].plot(ax = ax, title = 'Dark Counts Subtraction Test', color = 'grey', linewidth = 1)  
 
 
-#%% Testing background subtraction
+#%% Testing background subtraction & cosmic ray removal
 
 
 particle = my_h5['ParticleScannerScan_3']['Particle_0']
@@ -277,7 +308,7 @@ for i, spectrum in enumerate(powerseries[2:4]):
   
     ## x-axis truncation, calibration
     spectrum = SERS.SERS_Spectrum(spectrum)
-    spectrum.x = spt.wl_to_wn(spectrum.x, )
+    spectrum.x = spt.wl_to_wn(spectrum.x, 632.8)
     spectrum.x = spectrum.x + coarse_shift
     spectrum.x = spectrum.x * coarse_stretch
     spectrum.truncate(start_x = truncate_range[0], end_x = truncate_range[1])
@@ -286,27 +317,20 @@ for i, spectrum in enumerate(powerseries[2:4]):
                                   dark_counts = dark_powerseries[i].y,
                                   exposure = spectrum.cycle_time)
     
-    spectrum.y = spt.remove_cosmic_rays(spectrum.y)
-    # spectrum.truncate(450, 1500)
+    spectrum.y_cosmic = spt.remove_cosmic_rays(spectrum.y, threshold = 9)
 
     ## Baseline
     spectrum.baseline = spt.baseline_als(spectrum.y, 1e3, 1e-2, niter = 10)
     spectrum.y_baselined = spectrum.y - spectrum.baseline
+    spectrum.y_cosmic = spectrum.y_cosmic - spectrum.baseline
     
     ## Plot raw, baseline, baseline subtracted
-    offset = 0
-    spectrum.plot(ax = ax, plot_y = (spectrum.y - spectrum.y.min()) + (i*offset), linewidth = 1, color = 'black', label = i, zorder = 30-i)
-    spectrum.plot(ax = ax, plot_y = spectrum.y_baselined + (i*offset), linewidth = 1, color = 'purple', label = i, zorder = 30-i)
-    spectrum.plot(ax = ax, plot_y = spectrum.baseline- spectrum.y.min() + (i*offset), title = 'Background Subtraction Test', color = 'darkred', linewidth = 1)    
-    
-    ## Labeling & plotting
-    # ax.legend(fontsize = 18, ncol = 5, loc = 'upper center')
-    # ax.get_legend().set_title('Scan No.')
-    # for line in ax.get_legend().get_lines():
-    #     line.set_linewidth(4.0)
-    fig.suptitle(particle.name)
-    powerseries[i] = spectrum
-    
+    offset = 50000
+    spectrum.plot(ax = ax, plot_y = (spectrum.y - spectrum.y.min()) + (i*offset), linewidth = 1, color = 'black', label = 'Raw', zorder = 1)
+    spectrum.plot(ax = ax, plot_y = spectrum.y_baselined + (i*offset), linewidth = 1, color = 'purple', alpha = 0.5, label = 'Background subtracted', zorder = 2)
+    spectrum.plot(ax = ax, plot_y = spectrum.baseline- spectrum.y.min() + (i*offset), title = 'Background Subtraction & Cosmic Ray Test', color = 'darkred', label = 'Background', linewidth = 1)    
+    spectrum.plot(ax = ax, plot_y = spectrum.y_cosmic + (i*offset), title = 'Background Subtraction & Cosmic Ray Test', color = 'purple', label = 'Cosmic ray removed', linewidth = 1, linestyle = '--', zorder = 3)
+    fig.suptitle(particle.name)    
     # ax.set_xlim(1200, 1700)
     # ax.set_ylim(0, powerseries[].y_baselined.max() * 1.5)
     plt.tight_layout(pad = 0.8)
@@ -348,7 +372,7 @@ for particle_scan in scan_list:
 # avg_particle.name = 'MLAgg_Avg'    
 # particles.append(avg_particle)
 
-#%% Add & process SERS powerseries for each particle
+#%% Functions to add & process SERS powerseries for each particle
 
 
 def process_powerseries(particle):
@@ -366,7 +390,7 @@ def process_powerseries(particle):
         
         ## x-axis truncation, calibration
         spectrum = SERS.SERS_Spectrum(spectrum)
-        spectrum.x = spt.wl_to_wn(spectrum.x, 633)
+        spectrum.x = spt.wl_to_wn(spectrum.x, 632.8)
         spectrum.x = spectrum.x + coarse_shift
         spectrum.x = spectrum.x * coarse_stretch
         spectrum.truncate(start_x = truncate_range[0], end_x = truncate_range[1])
@@ -387,6 +411,8 @@ def process_powerseries(particle):
 
 def process_powerswitch_recovery(particle):
     
+    particle.dark_time = float(np.array(particle.h5_address['dark_time_0']))
+    
     ## Add all SERS spectra to powerseries list in order
     keys = list(particle.h5_address.keys())
     keys = natsort.natsorted(keys)
@@ -400,7 +426,7 @@ def process_powerswitch_recovery(particle):
         
         ## x-axis truncation, calibration
         spectrum = SERS.SERS_Spectrum(spectrum)
-        spectrum.x = spt.wl_to_wn(spectrum.x, 633)
+        spectrum.x = spt.wl_to_wn(spectrum.x, 632.8)
         spectrum.x = spectrum.x + coarse_shift
         spectrum.x = spectrum.x * coarse_stretch
         spectrum.truncate(start_x = truncate_range[0], end_x = truncate_range[1])
@@ -409,37 +435,22 @@ def process_powerswitch_recovery(particle):
                                       dark_counts = dark_powerseries[i].y,
                                       exposure = spectrum.cycle_time,
                                       laser_power = spectrum.laser_power)
-        spectrum.truncate(None, 1800)
+        # spectrum.truncate(None, 1800)
         spectrum.y = spt.remove_cosmic_rays(spectrum.y, threshold = 9)
         spectrum.baseline = spt.baseline_als(spectrum.y, 1e3, 1e-2, niter = 10)
         spectrum.y_baselined = spectrum.y - spectrum.baseline
-        spectrum.normalise(norm_y = spectrum.y_baselined)
+        # spectrum.normalise(norm_y = spectrum.y_baselined)
         powerseries[i] = spectrum
-
-    ## Add dark times into powerseries
-    if particle.dark_time > 0:
-        spectrum = SERS.SERS_Spectrum(x = powerseries[0].x, y = np.zeros(len(powerseries[0].y)))
-        spectrum.y_baselined = spectrum.y        
-        powerseries = np.insert(powerseries, [10], spectrum)
-        powerseries = np.insert(powerseries, [10], spectrum)
-        powerseries = np.insert(powerseries, [10], spectrum)
-        powerseries = np.insert(powerseries, [23], spectrum)
-        powerseries = np.insert(powerseries, [23], spectrum)
-        powerseries = np.insert(powerseries, [23], spectrum)
-        powerseries = np.insert(powerseries, [36], spectrum)
-        powerseries = np.insert(powerseries, [36], spectrum)
-        powerseries = np.insert(powerseries, [36], spectrum)
-    return powerseries
+    
+    particle.powerseries = powerseries
+        
 
 
-# Loop over all particles
+#%% Loop over all particles and process powerswitch
 
 for particle in tqdm(particles, leave = True):
     
-    particle.dark_time = float(np.array(particle.h5_address['dark_time_0']))
-    powerseries = process_powerswitch_recovery(particle)
-    particle.powerseries = powerseries
-
+    process_powerswitch_recovery(particle)
 
 
 #%%
@@ -578,7 +589,26 @@ def plot_timescan_powerswitch_recovery(particle, save = False):
     
     
     powerseries = particle.powerseries
-    powerseries_y = particle.powerseries_y
+    
+    ## Add dark times into powerseries (for plotting)
+    if particle.dark_time > 0:
+        spectrum = SERS.SERS_Spectrum(x = powerseries[0].x, y = np.zeros(len(powerseries[0].y)))
+        spectrum.y_baselined = spectrum.y        
+        powerseries = np.insert(powerseries, [10], spectrum)
+        powerseries = np.insert(powerseries, [10], spectrum)
+        powerseries = np.insert(powerseries, [10], spectrum)
+        powerseries = np.insert(powerseries, [23], spectrum)
+        powerseries = np.insert(powerseries, [23], spectrum)
+        powerseries = np.insert(powerseries, [23], spectrum)
+        powerseries = np.insert(powerseries, [36], spectrum)
+        powerseries = np.insert(powerseries, [36], spectrum)
+        powerseries = np.insert(powerseries, [36], spectrum)
+
+    ## Get all specrta into single array for timescan
+    powerseries_y = np.zeros((len(powerseries), len(powerseries[0].y)))
+    for i,spectrum in enumerate(powerseries):
+        powerseries_y[i] = spectrum.y_baselined
+    powerseries_y = np.array(powerseries_y)
 
     ## Plot powerseries as timescan
     timescan = SERS.SERS_Timescan(x = spectrum.x, y = powerseries_y, exposure = 1)
@@ -594,7 +624,7 @@ def plot_timescan_powerswitch_recovery(particle, save = False):
         ax3.text(x=820,y=10.5,s='Dark recovery time: ' + str(np.round(particle.dark_time,2)) + 's', color = 'white', size='x-large')
         ax3.text(x=820,y=23.5,s='Dark recovery time: ' + str(np.round(particle.dark_time,2)) + 's', color = 'white', size='x-large')
         ax3.text(x=820,y=36.5,s='Dark recovery time: ' + str(np.round(particle.dark_time,2)) + 's', color = 'white', size='x-large')
-    ax3.set_title('633 nm Powerswitch Recovery - 2/90 $\mu$W' + '\n' + str(particle.name), fontsize = 'x-large', pad = 10)
+    ax3.set_title('633 nm Powerswitch Recovery - 2 $\mu$W / 90 $\mu$W' + '\n' + str(particle.name), fontsize = 'x-large', pad = 10)
     pcm = ax3.pcolormesh(timescan.x, t_plot, powerseries_y, vmin = v_min, vmax = v_max, cmap = cmap, rasterized = 'True')
     clb = fig3.colorbar(pcm, ax=ax3)
     clb.set_label(label = 'SERS Intensity', size = 'large', rotation = 270, labelpad=30)
@@ -603,18 +633,18 @@ def plot_timescan_powerswitch_recovery(particle, save = False):
     if save == True:
         save_dir = get_directory(particle.name)
         fig3.savefig(save_dir + particle.name + '633nm Powerswitch Recovery' + '.svg', format = 'svg')
-        plt.close(fig)
+        plt.close(fig3)
 
 
 # Loop over all particles and plot
 
 for particle in tqdm(particles, leave = True):
     
-    ## Get all specrta into single array for timescan
-    powerseries_y = np.zeros((len(particle.powerseries), len(particle.powerseries[0].y)))
-    for i,spectrum in enumerate(particle.powerseries):
-        powerseries_y[i] = spectrum.y_baselined
-    particle.powerseries_y = np.array(powerseries_y)
+    # ## Get all specrta into single array for timescan
+    # powerseries_y = np.zeros((len(particle.powerseries), len(particle.powerseries[0].y)))
+    # for i,spectrum in enumerate(particle.powerseries):
+    #     powerseries_y[i] = spectrum.y_baselined
+    # particle.powerseries_y = np.array(powerseries_y)
     
     # plot_min_powerseries(particle)
     # plot_direct_powerseries(particle)
@@ -622,16 +652,15 @@ for particle in tqdm(particles, leave = True):
 
 
 #%% Peak fitting functions
+       
 
-
-def gauss(x: np.ndarray, a: float, mu: float, sigma: float, b: float) -> np.ndarray:
-    return (
-        a/sigma/np.sqrt(2*np.pi)
-    )*np.exp(
-        -0.5 * ((x-mu)/sigma)**2
-    ) + b
+def gaussian(x, height, center, width, width_height_frac = 0.5):
+    a = height
+    b = center
+    c = width/(2*np.sqrt(2*np.log(1/width_height_frac)))
+    
+    return a*np.exp(-(((x - b)**2)/(2*c**2)))
         
-
 def lorentzian(x, height, center, fwhm):
     I = height
     x0 = center
@@ -643,129 +672,261 @@ def lorentzian(x, height, center, fwhm):
     y = I*quot
     return y
 
-#%% Test spectrum_tools.approx_peak_gausses
 
-
-def gaussian(x, height, center, width, width_height_frac = 0.5):
-    a = height
-    b = center
-    c = width/(2*np.sqrt(2*np.log(1/width_height_frac)))
-    
-    return a*np.exp(-(((x - b)**2)/(2*c**2)))
-
-fit_range = [None,None]   
-particle = particles[32]
-powerseries = particle.powerseries
-spectrum = powerseries[9]
-spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 5000, fs = 30000)
-height_frac = 0.01
-start = time.time()
-x = spt.approx_peak_gausses(spectrum.x[fit_range[0]:fit_range[1]], spectrum.y_smooth[fit_range[0]:fit_range[1]], smooth_first=False, plot= False, height_frac = height_frac, threshold=0.1)
-finish = time.time()
-print(finish - start)
-
-y  = []
-for i, this_peak in enumerate(x):
-    height = x[i][0]
-    mu = x[i][1]
-    width = x[i][2]
-    sigma = width/2.35
-    area =  height * sigma * (2*np.pi)**(1/2) 
-    b = 0
-    # y.append(gauss(wn_cal, a = area, mu = mu, sigma = sigma, b = b))
-    y.append(gaussian(wn_cal, height, mu, width, height_frac))
-
-y = np.array(y)
-y_tot = y.sum(axis = 0)
-
-residuals = spectrum.y_smooth[fit_range[0]:fit_range[1]] - y_tot[fit_range[0]:fit_range[1]]
-residuals_tot = np.sum(np.abs(residuals))
-
-fig, ax = plt.subplots(1,1,figsize=[18,9])
-ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
-ax.set_ylabel('SERS Intensity (cts/mW/s)')
-fig.suptitle('spt.approx_peak_gausses()')
-ax.plot(wn_cal, spectrum.y_smooth, color = (0,0,0,0.5), linewidth = 1, label = 'Data')
-for i,peak in enumerate(x):
-    ax.scatter(x[i][1], x[i][0], marker = 'x', s = 100)
-    ax.plot(spectrum.x, y[i], zorder = 1, linestyle = 'dashed')
-ax.plot(spectrum.x, y_tot, color = (1,0,0,0.6), linewidth = 2, label = 'Fit', zorder = 2)
-ax.plot(spectrum.x[fit_range[0]:fit_range[1]], residuals, color = 'black', linewidth = 2, label = 'Residuals - Sum  = ' + str(np.round(residuals_tot,0)))
-ax.plot(1,1, label = 'Run time (s): ' + str(finish - start))
-# ax.set_xlim(spectrum.x[fit_range[0]],spectrum.x[fit_range[1]])
-# ax.set_xlim(1350,1500)
-ax.legend()
-
-
-#%% Fit peaks for single powerseries - testing quality control
-
+#%% Fit peaks of individual regions
 
 particle = particles[11]
 powerseries = particle.powerseries
 
-for j, spectrum in enumerate(powerseries):
+
+# 1620 peak
+
+fit_range = [1351, 1460]
+
+height_frac = 0.5
+
+for i, spectrum in enumerate(powerseries):
     
-    if np.sum(spectrum.y_baselined) <= 1000:
-        print(j)
-        continue
-    
-    spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 5000, fs = 30000)
-    # print('\n')
-    # print(spectrum.name)
-    height_frac = 0.2
-    passed = False
-    while passed == False:
-        start = time.time()
-        x = spt.approx_peak_gausses(spectrum.x, spectrum.y_smooth, smooth_first=False, plot= False, height_frac = height_frac, threshold=0.1)
-        finish = time.time()
-        
-        y  = []
-        for i, this_peak in enumerate(x):
-            height = x[i][0]
-            mu = x[i][1]
-            width = x[i][2]
-            sigma = width/2.35
-            area =  height * sigma * (2*np.pi)**(1/2) 
-            b = 0
-            # y.append(gauss(wn_cal, a = area, mu = mu, sigma = sigma, b = b))
-            y.append(gaussian(spectrum.x, height, mu, width, height_frac))
-        
-        y = np.array(y)
-        y_tot = y.sum(axis = 0)
-        
-        residuals = spectrum.y_smooth - y_tot
-        residuals_tot = np.sum(np.abs(residuals))
-    
-        if np.abs(residuals).max() <= np.percentile(spectrum.y_smooth, 80) and residuals_tot <= np.sum(spectrum.y_smooth)*0.3:
-            passed = True
-            # print('Passed')
-        else:
-            height_frac -= 0.01
-            
-        if height_frac <= 0.01:
-            passed = True
-            # print('Failed')
-            continue
-    
-    # print(residuals_tot/np.sum(spectrum.y_smooth))
-    # print(np.abs(residuals).max())
-    # print(np.percentile(spectrum.y_smooth, 75))
     
     fig, ax = plt.subplots(1,1,figsize=[18,9])
     ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
     ax.set_ylabel('SERS Intensity (cts/mW/s)')
-    fig.suptitle(spectrum.name)
-    ax.plot(spectrum.x, spectrum.y_smooth, color = (0,0,0,0.5), linewidth = 1, label = 'Data')
-    for i,peak in enumerate(x):
-        ax.scatter(x[i][1], x[i][0], marker = 'x', s = 100)
-        ax.plot(spectrum.x, y[i], zorder = 1, linestyle = 'dashed')
-    ax.plot(spectrum.x, y_tot, color = (1,0,0,0.6), linewidth = 2, label = 'Fit', zorder = 2)
-    ax.plot(spectrum.x, residuals, color = 'black', linewidth = 2, label = 'Residuals - Sum  = ' + str(np.round(residuals_tot,0)))
-    ax.plot(1,1, label = 'Run time (s): ' + str(finish - start))
-    ax.plot(1,1, label = 'Height frac: ' + str(height_frac))
-    # ax.set_xlim(spectrum.x[fit_range[0]],spectrum.x[fit_range[1]])
-    ax.set_xlim(1550,1650)
-    ax.legend()
+    spectrum.plot(ax = ax, plot_y = spectrum.y_baselined, color = 'black')
+    spectrum.plot(ax = ax, plot_y = spectrum.y_smooth, color = 'grey')
+
+    
+    fit_range_index = [np.where(np.abs(spectrum.x-fit_range[0]) <= 1)[0][0], np.where(np.abs(spectrum.x-fit_range[1]) <= 1)[0][0]]
+    
+    spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 3000, fs = 30000)
+    peak_fits = spt.approx_peak_gausses(spectrum.x[fit_range_index[0]:fit_range_index[1]], 
+                                        spectrum.y_smooth[fit_range_index[0]:fit_range_index[1]], 
+                                        smooth_first=False, plot= False, 
+                                        height_frac = height_frac, 
+                                        threshold=0.1)
+    
+    for this_peak in peak_fits:
+        # this_peak = peak_fits[]
+        height = this_peak[0]
+        mu = this_peak[1]
+        width = this_peak[2]
+        sigma = width/2.35
+        x = spectrum.x[fit_range_index[0]:fit_range_index[1]]
+        y = gaussian(x, height, mu, width, height_frac)
+    
+        this_peak = Peak(mu = mu, height = height, width = width, sigma = sigma, area = height * sigma * (2*np.pi)**(1/2)) 
+        this_peak.spectrum = SERS.SERS_Spectrum(x = x, y = y)    
+
+        this_peak.spectrum.plot(ax = ax)
+    
+    ax.set_xlim(fit_range)
+    plt.show()
+    
+    
+#%% Fit peaks of individual regions - scipy.optimize.curve_fit()
+
+particle = particles[11]
+powerseries = particle.powerseries
+
+
+def gauss(x: np.ndarray, a: float, mu: float, sigma: float, b: float) -> np.ndarray:
+    return (
+        a/sigma/np.sqrt(2*np.pi)
+    )*np.exp(
+        -0.5 * ((x-mu)/sigma)**2
+    ) + b
+
+# 1620 peak
+
+fit_range = [1351, 1450]
+
+height_frac = 0.5
+
+for i, spectrum in enumerate(powerseries[4:5]):
+    
+    fit_range_index = [np.where(np.abs(spectrum.x-fit_range[0]) <= 1)[0][0], np.where(np.abs(spectrum.x-fit_range[1]) <= 1)[0][0] + 1]
+    
+    spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 4000, fs = 30000)
+
+
+    X = spectrum.x[fit_range_index[0] : fit_range_index[1]]
+    Y = spectrum.y_smooth[fit_range_index[0] : fit_range_index[1]]
+    xmin, xmax = X.min(), X.max()  # left and right bounds
+    i_max = Y.argmax()             # index of highest value - for guess, assumed to be Gaussian peak
+    ymax = Y[i_max]     # height of guessed peak
+    mu0 = X[i_max]      # centre x position of guessed peak
+    b0 = (Y[0]+Y[len(Y)-1])/2  # height of baseline guess
+    i_half = np.argmax(Y >= (ymax + b0)/2)      # Index of first argument to be at least halfway up the estimated bell
+    # Guess sigma from the coordinates at i_half. This will work even if the point isn't at exactly
+    # half, and even if this point is a distant outlier the fit should still converge.
+    sigma0 = (mu0 - X[i_half]) / np.sqrt(2*np.log((ymax - b0)/(Y[i_half] - b0)))
+    # sigma0 = 3
+    a0 = (ymax - b0) * sigma0 * np.sqrt(2*np.pi)
+    p0 = a0, mu0, sigma0, b0
+    
+    try:
+        popt, _ = curve_fit(
+            f=gauss, xdata=X, ydata=Y, p0=p0,
+            bounds=(
+                (     1, xmin,           0,    0),
+                (np.inf, xmax, xmax - xmin, ymax),
+            ),
+        )
+    except:
+        popt = [a0, mu0, sigma0, b0]
+        print(i)
+        print('Fit Error')
+    # print('Guess:', np.array(p0))
+    # print('Fit:  ', popt)
+    
+    mu = popt[1]
+
+    sigma = popt[2]
+    width = sigma * 2.35
+    area = popt[0]
+    b = popt[3]
+    x = X
+    y = gauss(X, area, mu, sigma, b)
+    
+    this_peak = Peak(mu = mu, height = height, width = width, sigma = sigma, area = height * sigma * (2*np.pi)**(1/2)) 
+    this_peak.spectrum = SERS.SERS_Spectrum(x = x, y = y)    
+
+    fig, ax = plt.subplots(1,1,figsize=[18,9])
+    ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
+    ax.set_ylabel('SERS Intensity (cts/mW/s)')
+    spectrum.plot(ax = ax, plot_y = spectrum.y_baselined, color = 'black')
+    spectrum.plot(ax = ax, plot_y = spectrum.y_smooth)
+    this_peak.spectrum.plot(ax = ax)
+    ax.set_ylim(Y.min()/1.5, Y.max() * 1.1)
+    ax.set_xlim(fit_range)
+    
+#%% Peak fitting for whole spectrum - unused
+
+# #%% Test spectrum_tools.approx_peak_gausses
+
+
+# def gaussian(x, height, center, width, width_height_frac = 0.5):
+#     a = height
+#     b = center
+#     c = width/(2*np.sqrt(2*np.log(1/width_height_frac)))
+    
+#     return a*np.exp(-(((x - b)**2)/(2*c**2)))
+
+# fit_range = [None,None]   
+# particle = particles[32]
+# powerseries = particle.powerseries
+# spectrum = powerseries[9]
+# spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 5000, fs = 30000)
+# height_frac = 0.01
+# start = time.time()
+# x = spt.approx_peak_gausses(spectrum.x[fit_range[0]:fit_range[1]], spectrum.y_smooth[fit_range[0]:fit_range[1]], smooth_first=False, plot= False, height_frac = height_frac, threshold=0.1)
+# finish = time.time()
+# print(finish - start)
+
+# y  = []
+# for i, this_peak in enumerate(x):
+#     height = x[i][0]
+#     mu = x[i][1]
+#     width = x[i][2]
+#     sigma = width/2.35
+#     area =  height * sigma * (2*np.pi)**(1/2) 
+#     b = 0
+#     # y.append(gauss(wn_cal, a = area, mu = mu, sigma = sigma, b = b))
+#     y.append(gaussian(wn_cal, height, mu, width, height_frac))
+
+# y = np.array(y)
+# y_tot = y.sum(axis = 0)
+
+# residuals = spectrum.y_smooth[fit_range[0]:fit_range[1]] - y_tot[fit_range[0]:fit_range[1]]
+# residuals_tot = np.sum(np.abs(residuals))
+
+# fig, ax = plt.subplots(1,1,figsize=[18,9])
+# ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
+# ax.set_ylabel('SERS Intensity (cts/mW/s)')
+# fig.suptitle('spt.approx_peak_gausses()')
+# ax.plot(wn_cal, spectrum.y_smooth, color = (0,0,0,0.5), linewidth = 1, label = 'Data')
+# for i,peak in enumerate(x):
+#     ax.scatter(x[i][1], x[i][0], marker = 'x', s = 100)
+#     ax.plot(spectrum.x, y[i], zorder = 1, linestyle = 'dashed')
+# ax.plot(spectrum.x, y_tot, color = (1,0,0,0.6), linewidth = 2, label = 'Fit', zorder = 2)
+# ax.plot(spectrum.x[fit_range[0]:fit_range[1]], residuals, color = 'black', linewidth = 2, label = 'Residuals - Sum  = ' + str(np.round(residuals_tot,0)))
+# ax.plot(1,1, label = 'Run time (s): ' + str(finish - start))
+# # ax.set_xlim(spectrum.x[fit_range[0]],spectrum.x[fit_range[1]])
+# # ax.set_xlim(1350,1500)
+# ax.legend()
+
+
+# #%% Fit peaks for single powerseries - testing quality control
+
+
+# particle = particles[11]
+# powerseries = particle.powerseries
+
+# for j, spectrum in enumerate(powerseries):
+    
+#     if np.sum(spectrum.y_baselined) <= 1000:
+#         print(j)
+#         continue
+    
+#     spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 5000, fs = 30000)
+#     # print('\n')
+#     # print(spectrum.name)
+#     height_frac = 0.2
+#     passed = False
+#     while passed == False:
+#         start = time.time()
+#         x = spt.approx_peak_gausses(spectrum.x, spectrum.y_smooth, smooth_first=False, plot= False, height_frac = height_frac, threshold=0.1)
+#         finish = time.time()
+        
+#         y  = []
+#         for i, this_peak in enumerate(x):
+#             height = x[i][0]
+#             mu = x[i][1]
+#             width = x[i][2]
+#             sigma = width/2.35
+#             area =  height * sigma * (2*np.pi)**(1/2) 
+#             b = 0
+#             # y.append(gauss(wn_cal, a = area, mu = mu, sigma = sigma, b = b))
+#             y.append(gaussian(spectrum.x, height, mu, width, height_frac))
+        
+#         y = np.array(y)
+#         y_tot = y.sum(axis = 0)
+        
+#         residuals = spectrum.y_smooth - y_tot
+#         residuals_tot = np.sum(np.abs(residuals))
+    
+#         if np.abs(residuals).max() <= np.percentile(spectrum.y_smooth, 80) and residuals_tot <= np.sum(spectrum.y_smooth)*0.3:
+#             passed = True
+#             # print('Passed')
+#         else:
+#             height_frac -= 0.01
+            
+#         if height_frac <= 0.01:
+#             passed = True
+#             # print('Failed')
+#             continue
+    
+#     # print(residuals_tot/np.sum(spectrum.y_smooth))
+#     # print(np.abs(residuals).max())
+#     # print(np.percentile(spectrum.y_smooth, 75))
+    
+#     fig, ax = plt.subplots(1,1,figsize=[18,9])
+#     ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
+#     ax.set_ylabel('SERS Intensity (cts/mW/s)')
+#     fig.suptitle(spectrum.name)
+#     ax.plot(spectrum.x, spectrum.y_smooth, color = (0,0,0,0.5), linewidth = 1, label = 'Data')
+#     for i,peak in enumerate(x):
+#         ax.scatter(x[i][1], x[i][0], marker = 'x', s = 100)
+#         ax.plot(spectrum.x, y[i], zorder = 1, linestyle = 'dashed')
+#     ax.plot(spectrum.x, y_tot, color = (1,0,0,0.6), linewidth = 2, label = 'Fit', zorder = 2)
+#     ax.plot(spectrum.x, residuals, color = 'black', linewidth = 2, label = 'Residuals - Sum  = ' + str(np.round(residuals_tot,0)))
+#     ax.plot(1,1, label = 'Run time (s): ' + str(finish - start))
+#     ax.plot(1,1, label = 'Height frac: ' + str(height_frac))
+#     # ax.set_xlim(spectrum.x[fit_range[0]],spectrum.x[fit_range[1]])
+#     ax.set_xlim(1550,1650)
+#     ax.legend()
+
+
+
 
 #%% Fit peaks for all particles
 

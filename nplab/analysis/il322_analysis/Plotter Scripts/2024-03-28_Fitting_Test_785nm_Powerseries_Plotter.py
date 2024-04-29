@@ -966,7 +966,7 @@ ax.set_xlim(1350,1500)
 ax.legend()
 
 
-#%% Fit peaks for single powerseries
+#%% Fit peaks for single powerseries - Quality Control
 
 
 particle = particles[10]
@@ -979,6 +979,8 @@ for j, spectrum in enumerate(powerseries):
     print(spectrum.name)
     height_frac = 0.1
     passed = False
+    
+    ## Loop through height_frac until fit residuals are acceptable
     while passed == False:
         start = time.time()
         x = spt.approx_peak_gausses(spectrum.x, spectrum.y_smooth, smooth_first=False, plot= False, height_frac = height_frac, threshold=0.15)
