@@ -132,6 +132,8 @@ class SERS_Spectrum(spt.Spectrum):
         self.x_min = self.x.min()
         self.x_max = self.x.max()
         
+        self.peaks = []
+        
     def calibrate_intensity(self, R_setup = 1, dark_counts = 0, laser_power = None, exposure = None):
         
         '''

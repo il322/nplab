@@ -51,7 +51,7 @@ from nplab.analysis.il322_analysis import il322_DF_tools as df
 from lmfit.models import GaussianModel
 
 
-#%%
+#%% Data storage classes
 
 
 class Particle(): 
@@ -59,18 +59,17 @@ class Particle():
         self.name = None
 
 class Peak():
-    def __init__(self, mu, height, width, sigma, area, **kwargs):
+    def __init__(self, height, mu, width, baseline, **kwargs):
         self.height = height
-        self.width = width
-        self.sigma = sigma
-        self.area = area
         self.mu = mu
+        self.width = width
+        self.baseline = baseline
 
 
 #%% h5 files
 
 ## Load raw data h5
-my_h5 = h5py.File(r"C:\Users\ishaa\OneDrive\Desktop\Offline Data\2024-04-10_633nm-BPT-MLAgg-Powerseries_633nm-Co-TAPP-SMe_MLAgg-Powerswitch_CCD-Flatness.h5")
+my_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\2024-04-10_633nm-BPT-MLAgg-Powerseries_633nm-Co-TAPP-SMe_MLAgg-Powerswitch_CCD-Flatness.h5")
 
 
 #%% Spectral calibration
@@ -174,7 +173,7 @@ Using a white_bkg of -100000 flattens it out...
 
 def get_directory(particle_name):
         
-    directory_path = r'C:\Users\ishaa\OneDrive\Desktop\Offline Data\2024-04-10_633nm Powerswitch Recovery Analysis\_' + particle_name + '\\'
+    directory_path = r'C:\Users\il322\Desktop\Offline Data\2024-04-10_633nm Powerswitch Recovery Analysis\_' + particle_name + '\\'
     
     if not os.path.exists(directory_path):
         os.makedirs(directory_path)
@@ -304,7 +303,7 @@ ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
 ax.set_ylabel('SERS Intensity (cts/mW/s)')
 
 
-for i, spectrum in enumerate(powerseries[2:4]):
+for i, spectrum in enumerate(powerseries[0:1]):
   
     ## x-axis truncation, calibration
     spectrum = SERS.SERS_Spectrum(spectrum)
@@ -327,14 +326,15 @@ for i, spectrum in enumerate(powerseries[2:4]):
     ## Plot raw, baseline, baseline subtracted
     offset = 50000
     spectrum.plot(ax = ax, plot_y = (spectrum.y - spectrum.y.min()) + (i*offset), linewidth = 1, color = 'black', label = 'Raw', zorder = 1)
-    spectrum.plot(ax = ax, plot_y = spectrum.y_baselined + (i*offset), linewidth = 1, color = 'purple', alpha = 0.5, label = 'Background subtracted', zorder = 2)
+    spectrum.plot(ax = ax, plot_y = spectrum.y_baselined + (i*offset), linewidth = 1, color = 'blue', alpha = 1, label = 'Background subtracted', zorder = 2)
     spectrum.plot(ax = ax, plot_y = spectrum.baseline- spectrum.y.min() + (i*offset), title = 'Background Subtraction & Cosmic Ray Test', color = 'darkred', label = 'Background', linewidth = 1)    
-    spectrum.plot(ax = ax, plot_y = spectrum.y_cosmic + (i*offset), title = 'Background Subtraction & Cosmic Ray Test', color = 'purple', label = 'Cosmic ray removed', linewidth = 1, linestyle = '--', zorder = 3)
+    spectrum.plot(ax = ax, plot_y = spectrum.y_cosmic + (i*offset), title = 'Background Subtraction & Cosmic Ray Test', color = 'orange', label = 'Cosmic ray removed', linewidth = 1, linestyle = '--', zorder = 3)
     fig.suptitle(particle.name)    
-    # ax.set_xlim(1200, 1700)
-    # ax.set_ylim(0, powerseries[].y_baselined.max() * 1.5)
-    plt.tight_layout(pad = 0.8)
-    
+ax.legend()
+# ax.set_xlim(1200, 1700)
+# ax.set_ylim(0, powerseries[].y_baselined.max() * 1.5)
+plt.tight_layout(pad = 0.8)
+
 #%% Get all particles to analyze into Particle class with h5 locations and in a list
 
 
@@ -448,38 +448,772 @@ def process_powerswitch_recovery(particle):
 
 #%% Loop over all particles and process powerswitch
 
+print('\nProcessing spectra...')
 for particle in tqdm(particles, leave = True):
     
     process_powerswitch_recovery(particle)
 
+#%% Peak fitting functions
+       
+def gaussian(x, height, mu, width, baseline):
+    
+    sigma = width / (2 * np.sqrt(2 * np.log(2)))
+    
+    return height * np.exp(-(((x - mu)**2)/(2 * sigma **2))) + baseline
 
-#%%
-# Calculate average powerseries of all particles
 
-avg_particle = particles[len(particles)-1]
-powerseries = avg_particle.powerseries
+def gaussian2(x, 
+              height1, mu1, width1, baseline1,
+              height2, mu2, width2, baseline2):
+    
+    sigma1 = width1 / (2 * np.sqrt(2 * np.log(2)))
+    sigma2 = width2 / (2 * np.sqrt(2 * np.log(2)))    
+    
+    y1 = height1 * np.exp(-(((x - mu1)**2)/(2 * sigma1 **2))) + baseline1
+    y2 = height2 * np.exp(-(((x - mu2)**2)/(2 * sigma2 **2))) + baseline2
+    
+    return y1 + y2
 
-## Set powerseries to 0
 
-for i, spectrum in enumerate(powerseries):
-    spectrum.y = np.zeros(spectrum.y.shape)
-    spectrum.baseline = np.zeros(spectrum.baseline.shape)
-    spectrum.y_baselined = np.zeros(spectrum.y_baselined.shape)
+def gaussian3(x, 
+              height1, mu1, width1, baseline1,
+              height2, mu2, width2, baseline2,
+              height3, mu3, width3, baseline3):
+    
+    sigma1 = width1 / (2 * np.sqrt(2 * np.log(2)))
+    sigma2 = width2 / (2 * np.sqrt(2 * np.log(2)))    
+    sigma3 = width3 / (2 * np.sqrt(2 * np.log(2)))
+    
+    y1 = height1 * np.exp(-(((x - mu1)**2)/(2 * sigma1 **2))) + baseline1
+    y2 = height2 * np.exp(-(((x - mu2)**2)/(2 * sigma2 **2))) + baseline2
+    y3 = height3 * np.exp(-(((x - mu3)**2)/(2 * sigma3 **2))) + baseline3
+    
+    return y1 + y2 + y3
+    
 
-## Add powerseries from all particles    
-for particle in particles[0:len(particles)-2]:
+def lorentzian(x, height, mu, fwhm):
+    I = height
+    x0 = mu
+    gamma = fwhm/2
+    numerator = gamma**2
+    denominator = (x - x0)**2 + gamma**2
+    quot = numerator/denominator
+    
+    y = I*quot
+    return y
+
+
+#%% Peak fit for single Gaussian regions  
+        
+
+def fit_gaussian_powerseries(particle, fit_range, peak_name = None, R_sq_thresh = 0.85, smooth_first = False, plot = False):
+
+    '''
+    Fit single gaussian peak to given range of each spectrum in powerseries
+    Adds peaks as attributes to each spectra in powerseries
+    '''    
+    
+    powerseries = particle.powerseries
+
     for i, spectrum in enumerate(powerseries):
-        spectrum.y += particle.powerseries[i].y
-        spectrum.baseline += particle.powerseries[i].baseline
-        spectrum.y_baselined += particle.powerseries[i].y_baselined
+        
+    
+        ## Get region of spectrum to fit
+        fit_range_index = [np.abs(spectrum.x-fit_range[0]).argmin(), np.abs(spectrum.x-fit_range[1]).argmin()+1]
+        x = spectrum.x[fit_range_index[0]:fit_range_index[1]]
+        y = spectrum.y_baselined[fit_range_index[0]:fit_range_index[1]]
+       
+        if smooth_first == True:
+            spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 3000, fs = 30000)
+            y = spectrum.y_smooth[fit_range_index[0]:fit_range_index[1]]
+        
+    
+        # Fit
+        
+        ## Initial guesses
+        i_max = y.argmax() # index of highest value - for guess, assumed to be Gaussian peak
+        height0 = y[i_max]
+        mu0 = x[i_max] # centre x position of guessed peak
+        baseline0 = (y[0] + y[len(y)-1])/2 # height of baseline guess
+        i_half = np.argmax(y >= (height0 + baseline0)/2) # Index of first argument to be at least halfway up the estimated bell
+        # Guess sigma from the coordinates at i_half. This will work even if the point isn't at exactly
+        # half, and even if this point is a distant outlier the fit should still converge.
+        sigma0 = (mu0 - x[i_half]) / np.sqrt(2*np.log((height0 - baseline0)/(y[i_half] - baseline0)))
+        width0 = sigma0 * 2 * np.sqrt(2*np.log(2))
+        # sigma0 = 3
+        p0 = height0, mu0, width0, baseline0
+        
+        ## Perform fit (height, mu, width, baseline)
+        start = time.time()
+        
+        try:
+            popt, pcov = curve_fit(f = gaussian, 
+                                xdata = x,
+                                ydata = y, 
+                                p0 = p0,
+                                bounds=(
+                                    (0, x.min(), 0, y.min()),
+                                    (height0 * 1.2, x.max(), (x.max() - x.min()) * 2, height0),),)
+            
+        except:
+            popt = [height0, mu0, sigma0, baseline0]
+            # print('\nFit Error')
+          
+        finish = time.time()
+        runtime = finish - start
+            
+        # print('Guess:', np.array(p0))
+        # print('Fit:  ', popt)
+        
+        ## Get fit data
+        height = popt[0]
+        mu = popt[1]
+        width = popt[2]
+        baseline = popt[3]
+        sigma = width / (2 * np.sqrt(2 * np.log(2)))
+        area = height * sigma * np.sqrt(2 * np.pi)
+        y_fit = gaussian(x, *popt)
+        residuals = y - y_fit
+        residuals_sum = np.abs(residuals).sum()
+        R_sq =  1 - ((np.sum(residuals**2)) / (np.sum((y - np.mean(y))**2)))
+        
+        if peak_name is None:
+            peak_name = str(int(np.round(np.mean(fit_range),0)))
+        
+        ## Screening poor fits
+        if R_sq < R_sq_thresh or np.isnan(R_sq):
+            # print('\nPoor Fit')
+            # print(particle.name)
+            # print(spectrum.name)
+            # print('R^2 = ' + str(np.round(R_sq, 3)))
+            # print('Guess:', np.array(p0))
+            # print('Fit:  ', popt)
+            error = True
+        else:
+            error = False
+        
+        ## Add fit data to peak class
+        this_peak = Peak(*popt)
+        this_peak.area = area
+        this_peak.sigma = sigma
+        this_peak.name = peak_name
+        this_peak.spectrum = SERS.SERS_Spectrum(x = x, y = y_fit)
+        this_peak.R_sq = R_sq
+        this_peak.residuals = SERS.SERS_Spectrum(x = x, y = residuals)
+        this_peak.error = error        
+        
+        ## Add peak class to spectrum class 'peaks' list
+        particle.powerseries[i].peaks.append(this_peak)
+           
+        
+        # Plot
+        
+        if plot == True: # or error == True:
+            
+            fig, ax = plt.subplots(1,1,figsize=[18,9])
+            fig.suptitle(particle.name, fontsize = 'large')
+            ax.set_title(spectrum.name, fontsize = 'large')
+            ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
+            ax.set_ylabel('SERS Intensity (cts/mW/s)')
+            if smooth_first:
+                ax.plot(x, spectrum.y_baselined[fit_range_index[0]:fit_range_index[1]], color = 'grey', linestyle = '--', label = 'Data')
+                ax.plot(x, y, color = 'grey', label = 'Smoothed') 
+            else:
+                ax.plot(x, y, color = 'grey', linestyle = '--', label = 'Data')
+            ax.plot(x, y_fit, label = 'Fit', color = 'orange')
+            ax.plot(x, residuals, label = 'Residuals: ' + str(np.round(residuals_sum, 2)), color = 'black')
+            ax.plot(1,1, label = 'R$^2$: ' + str(np.round(R_sq, 3)), color = (0,0,0,0))
+            ax.plot(1,1, label = 'Run time (ms): ' + str(np.round(runtime * 1000, 3)), color = (0,0,0,0))
+            ax.set_xlim(fit_range[0], fit_range[1])
+            ax.set_ylim(None, y.max()*1.2)
+            ax.legend()
+            plt.show()
 
-## Divide to get average
-for i, spectrum in enumerate(powerseries):
-    spectrum.y = spectrum.y/(len(particles)-1)
-    spectrum.baseline = spectrum.baseline/(len(particles)-1)
-    spectrum.y_baselined = spectrum.y_baselined/(len(particles)-1)
+
+# Testing fit ranges
+
+particle = particles[1]
+# fit_gaussian_powerseries(particle = particle, fit_range = [480, 545], smooth_first = True, plot = True)
+# fit_gaussian_powerseries(particle = particle, fit_range = [1100, 1150], smooth_first = True, plot = False)
+# fit_gaussian_powerseries(particle = particle, fit_range = [1170, 1220], smooth_first = True, plot = False)
+# fit_gaussian_powerseries(particle = particle, fit_range = [1280, 1310], smooth_first = True, plot = False)
+# fit_gaussian_powerseries(particle = particle, fit_range = [1475, 1525], smooth_first = True, plot = False)
+# fit_gaussian_powerseries(particle = particle, fit_range = [1628, 1655], smooth_first = True,  plot = False)    
+# fit_gaussian_powerseries(particle = particle, fit_range = [1425, 1450], smooth_first = True,  plot = True)    
+
+ 
+#%% Peak fit for double Gaussian region
+
+# def fit_gaussian2_powerseries(particle, fit_range = [1410, 1450], peak_name = None, R_sq_thresh = 0.85, smooth_first = False, plot = False):
+
+#     '''
+#     Fit single gaussian peak to given range of each spectrum in powerseries
+#     Adds peaks as attributes to each spectra in powerseries
+#     '''    
+    
+#     powerseries = particle.powerseries
+
+#     for i, spectrum in enumerate(powerseries):
+        
+    
+#         ## Get region of spectrum to fit
+#         fit_range_index = [np.abs(spectrum.x-fit_range[0]).argmin(), np.abs(spectrum.x-fit_range[1]).argmin()+1]
+#         x = spectrum.x[fit_range_index[0]:fit_range_index[1]]
+#         y = spectrum.y_baselined[fit_range_index[0]:fit_range_index[1]]
+       
+#         if smooth_first == True:
+#             spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 5000, fs = 15000)
+#             y = spectrum.y_smooth[fit_range_index[0]:fit_range_index[1]]
+        
+    
+#         # Fit
+        
+#         # ## Initial guesses
+#         # i_max = y.argmax() # index of highest value - for guess, assumed to be Gaussian peak
+#         # height0 = y[i_max]
+#         # mu0 = x[i_max] # centre x position of guessed peak
+#         # baseline0 = (y[0] + y[len(y)-1])/2 # height of baseline guess
+#         # i_half = np.argmax(y >= (height0 + baseline0)/2) # Index of first argument to be at least halfway up the estimated bell
+#         # # Guess sigma from the coordinates at i_half. This will work even if the point isn't at exactly
+#         # # half, and even if this point is a distant outlier the fit should still converge.
+#         # sigma0 = (mu0 - x[i_half]) / np.sqrt(2*np.log((height0 - baseline0)/(y[i_half] - baseline0)))
+#         # width0 = sigma0 * 2 * np.sqrt(2*np.log(2))
+#         # # sigma0 = 3
+#         # p0 = height0, mu0, width0, baseline0
+        
+#         ## Perform fit (height, mu, width, baseline)
+#         start = time.time()
+        
+#         ## Initial guesses
+        
+#         ### First peak
+#         height1 = y.max()/1.7
+#         mu1 = 1420
+#         width1 = 15
+#         baseline1 = 0
+        
+#         ### Second peak
+#         height2 = y.max()
+#         mu2 = 1434
+#         width2 = 17
+#         baseline2 = 0
+        
+        
+#         p0 = [
+#                 height1, mu1, width1, baseline1,
+#                 height2, mu2, width2, baseline2
+#              ]
+        
+#         # lower_bounds = (
+#         #                 0, mu1 - 5, width1 - 5, y.min(),
+#         #                 0, mu2 - 1, width2 - 2, y.min(),
+#         #                 0, mu3 - 1, width3 - 5, y.min()
+#         #                )
+        
+#         # upper_bounds = (
+#         #                 height1 * 2, mu1 + 5, width1 + 5, 1000,
+#         #                 height2 * 2, mu2 + 1, width2 + 2, 1000,
+#         #                 height3 * 2, mu3 + 1, width3 + 5, 1000
+#         #                )
+
+#         lower_bounds = (
+#                         0, x.min(), 0, y.min(),
+#                         0, x.min(), 0, y.min()
+#                        )
+        
+#         upper_bounds = (
+#                         height1 * 2, x.max(), x.max()-x.min(), 1000,
+#                         height2 * 2, x.max(), x.max()-x.min(), 1000
+#                        )        
+        
+#         try:
+#             popt, pcov = curve_fit(f = gaussian2, 
+#                                 xdata = x,
+#                                 ydata = y, 
+#                                 p0 = p0,
+#                                 bounds=((lower_bounds),(upper_bounds),),)
+            
+#         except:
+#             popt = p0
+#             print('\nFit Error')
+          
+#         finish = time.time()
+#         runtime = finish - start
+            
+#         # print('Guess:', np.array(p0))
+#         # print('Fit:  ', popt)
+        
+        
+#         # Get fit data
+        
+#         ## Peak 1
+#         height = popt[0]
+#         mu = popt[1]
+#         width = popt[2]
+#         baseline = popt[3]
+#         sigma = width / (2 * np.sqrt(2 * np.log(2)))
+#         area = height * sigma * np.sqrt(2 * np.pi)
+#         y_fit = gaussian(x, *popt[0:4])
+#         if peak_name is None:
+#             peak_name = str(int(np.round(np.mean(fit_range),0)))
+#         peak1 = Peak(*popt[0:4])
+#         peak1.area = area
+#         peak1.sigma = sigma
+#         peak1.spectrum = SERS.SERS_Spectrum(x = x, y = y_fit)
+#         peak1.name = 'Triple A'
+
+#         ## Peak 2
+#         height = popt[4]
+#         mu = popt[5]
+#         width = popt[6]
+#         baseline = popt[7]
+#         sigma = width / (2 * np.sqrt(2 * np.log(2)))
+#         area = height * sigma * np.sqrt(2 * np.pi)
+#         y_fit = gaussian(x, *popt[4:8])
+#         if peak_name is None:
+#             peak_name = str(int(np.round(np.mean(fit_range),0)))
+#         peak2 = Peak(*popt[4:8])
+#         peak2.area = area
+#         peak2.sigma = sigma
+#         peak2.spectrum = SERS.SERS_Spectrum(x = x, y = y_fit)
+#         peak2.name = 'Triple B'
+
+        
+#         ## Sum & residuals
+#         y_fit = peak1.spectrum.y + peak2.spectrum.y
+#         residuals = y - y_fit
+#         residuals_sum = np.abs(residuals).sum()
+#         R_sq =  1 - ((np.sum(residuals**2)) / (np.sum((y - np.mean(y))**2)))
+#         ### R_sq is total R_sq for triple
+#         peak1.R_sq = R_sq
+#         peak2.R_sq = R_sq
+
+#         # if peak_name is None:
+#         #     peak_name = str(int(np.round(np.mean(fit_range),0)))
+        
+#         ## Screening poor fits
+#         if R_sq < R_sq_thresh or np.isnan(R_sq):
+#             print('\nPoor Fit')
+#             print(particle.name)
+#             print(spectrum.name)
+#             print('R^2 = ' + str(np.round(R_sq, 3)))
+#             print('Guess:', np.array(p0))
+#             print('Fit:  ', popt)
+#             error = True
+#         else:
+#             error = False
+#         peak1.error = error
+#         peak2.error = error    
+        
+#         ## Add peaks class to spectrum class 'peaks' list
+#         particle.powerseries[i].peaks.append(peak1)
+#         particle.powerseries[i].peaks.append(peak2)   
+        
+        
+#         # Plot
+        
+#         if plot == True or error == True:
+            
+#             fig, ax = plt.subplots(1,1,figsize=[18,9])
+#             fig.suptitle(particle.name, fontsize = 'large')
+#             ax.set_title(spectrum.name, fontsize = 'large')
+#             ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
+#             ax.set_ylabel('SERS Intensity (cts/mW/s)')
+#             if smooth_first:
+#                 ax.plot(x, spectrum.y_baselined[fit_range_index[0]:fit_range_index[1]], color = 'grey', linestyle = '--', label = 'Data')
+#                 ax.plot(x, y, color = 'grey', label = 'Smoothed') 
+#             else:
+#                 ax.plot(x, y, color = 'grey', linestyle = '--', label = 'Data')
+#             ax.plot(x, peak1.spectrum.y, label = 'Fit A', color = 'red')
+#             ax.plot(x, peak2.spectrum.y, label = 'Fit B', color = 'green')
+#             ax.plot(x, y_fit, label = 'Fit', color = 'orange')
+#             ax.plot(x, residuals, label = 'Residuals: ' + str(np.round(residuals_sum, 2)), color = 'black')
+#             ax.plot(1,1, label = 'R$^2$: ' + str(np.round(R_sq, 3)), color = (0,0,0,0))
+#             ax.plot(1,1, label = 'Run time (ms): ' + str(np.round(runtime * 1000, 3)), color = (0,0,0,0))
+#             ax.set_xlim(fit_range[0], fit_range[1])
+#             ax.set_ylim(None, y.max()*1.2)
+#             ax.legend()
+#             plt.show()
+
+
+# # Testing fit ranges
+
+# particle = particles[10]
+# for spectrum in particle.powerseries:
+#     spectrum.peaks = []
+# fit_gaussian_powerseries(particle = particle, fit_range = [480, 545], smooth_first = True, plot = False)
+# fit_gaussian_powerseries(particle = particle, fit_range = [1100, 1150], smooth_first = True, plot = False)
+# fit_gaussian_powerseries(particle = particle, fit_range = [1170, 1220], smooth_first = True, plot = False)
+# fit_gaussian_powerseries(particle = particle, fit_range = [1280, 1310], smooth_first = True, plot = False)
+# fit_gaussian_powerseries(particle = particle, fit_range = [1475, 1525], smooth_first = True, plot = False)
+# fit_gaussian_powerseries(particle = particle, fit_range = [1628, 1655], smooth_first = True,  plot = False)    
+# fit_gaussian2_powerseries(particle = particle, fit_range = [1415, 1450], smooth_first = True, plot = True)
+# plot_peak_areas(particle)   
+
+
+#%% Peak fit for triple Gaussian region
+
+def fit_gaussian3_powerseries(particle, fit_range = [1365, 1450], peak_name = None, R_sq_thresh = 0.85, smooth_first = False, plot = False, save = False):
+
+    '''
+    Fit single gaussian peak to given range of each spectrum in powerseries
+    Adds peaks as attributes to each spectra in powerseries
+    '''    
+    
+    powerseries = particle.powerseries
+
+    for i, spectrum in enumerate(powerseries):
+        
+    
+        ## Get region of spectrum to fit
+        fit_range_index = [np.abs(spectrum.x-fit_range[0]).argmin(), np.abs(spectrum.x-fit_range[1]).argmin()+1]
+        x = spectrum.x[fit_range_index[0]:fit_range_index[1]]
+        y = spectrum.y_baselined[fit_range_index[0]:fit_range_index[1]]
+       
+        if smooth_first == True:
+            spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 5000, fs = 15000)
+            y = spectrum.y_smooth[fit_range_index[0]:fit_range_index[1]]
+
+        # return x
+
+        # Fit
+        
+        ## Initial guesses
+
+        ### First peak
+        x1 = x[:21]
+        y1 = y[:21]
+        i_max = y1.argmax() # index of highest value - for guess, assumed to be Gaussian peak
+        height1 = y1[i_max]
+        mu1 = x1[i_max] # centre x position of guessed peak
+        width1 = (x1.max()-x1.min())/2
+        baseline1 = 0
+        
+        ### Second peak
+        x2 = x[22:28]
+        y2 = y[22:28]
+        i_max = y2.argmax() # index of highest value - for guess, assumed to be Gaussian peak
+        height2 = y2[i_max]
+        mu2 = x2[i_max] # centre x position of guessed peak
+        width2 = 14
+        baseline2 = 0
+        
+        ### Third peak
+        x3 = x[31:]
+        y3 = y[31:]
+        i_max = y3.argmax() # index of highest value - for guess, assumed to be Gaussian peak
+        height3 = y3[i_max]
+        mu3 = x3[i_max] # centre x position of guessed peak
+        width3 = 13
+        baseline3 = 0
+        # baseline3 = (y3[0] + y3[len(y3)-1])/2 # height of baseline guess
+        # i_half = np.argmax(3 >= (height3 + baseline3)/2) # Index of first argument to be at least halfway up the estimated bell
+        # Guess sigma from the coordinates at i_half. This will work even if the point isn't at exactly
+        # half, and even if this point is a distant outlier the fit should still converge.
+        # sigma3 = (mu3 - x3[i_half]) / np.sqrt(2*np.log((height3 - baseline3)/(y3[i_half] - baseline3)))
+        # width3 = sigma3 * 2 * np.sqrt(2*np.log(2))
+        # sigma0 = 3
+        # p0 = height0, mu0, width0, baseline0
+        
+        ## Perform fit (height, mu, width, baseline)
+        start = time.time()
+        
+        ## Initial guesses
+        
+        ### First peak
+        # height1 = y.max()/3
+        # mu1 = 1399
+        # width1 = 20
+        # baseline1 = 0
+        
+        # ### Second peak
+        # height2 = y.max()/1.7
+        # mu2 = 1425
+        # width2 = 15
+        # baseline2 = 0
+        
+        # # ### Third peak
+        # height3 = y.max()
+        # mu3 = 1434
+        # width3 = 15
+        # baseline3 = 0
+        
+        p0 = [
+                height1, mu1, width1, baseline1,
+                height2, mu2, width2, baseline2,
+                height3, mu3, width3, baseline3
+             ]
+        
+        # lower_bounds = (
+        #                 0, mu1 - 5, width1 - 5, y.min(),
+        #                 0, mu2 - 5, width2 - 1, y.min(),
+        #                 0, mu3 - 2, width3 - 1, y.min()
+        #                 )
+        
+        # upper_bounds = (
+        #                 height1 * 2, mu1 + 5, width1 + 2, 100,
+        #                 height2 * 2, mu2 + 5, width2 + 1, 100,
+        #                 height3 * 2, mu3 + 2, width3 + 1, 100
+        #                 )
+
+        lower_bounds = (
+                        0, x1.min(), 0, y.min(),
+                        height2 * 0.9, mu2 - 2, width2 - 5, y.min(),
+                        height3 * 0.9, mu3 - 2, width3 - 5, y.min()
+                        )
+        
+        upper_bounds = (
+                        height2, x1.max(), x.max()-x.min(), 100,
+                        height2 * 1.05, mu2 + 2, width2 + 5, 100,
+                        height3 * 1.05, mu3 + 2, width3 + 5, 100
+                        )        
+        
+        try:
+            popt, pcov = curve_fit(f = gaussian3, 
+                                xdata = x,
+                                ydata = y, 
+                                p0 = p0,
+                                bounds=((lower_bounds),(upper_bounds),),)
+            
+        except:
+            popt = p0
+            # print('\nFit Error')
+          
+        finish = time.time()
+        runtime = finish - start
+        # print()
+        # print('\n')
+        # print(particle.name)
+        # print(spectrum.name)
+        # # print('R^2 = ' + str(np.round(R_sq, 3)))
+        # print('Guess:', np.array(p0))
+        # print('Fit:  ', popt)
+        # print('Guess:', np.array(p0))
+        # print('Fit:  ', popt)
+        
+        
+        # Get fit data
+        
+        ## Peak 1
+        height = popt[0]
+        mu = popt[1]
+        width = popt[2]
+        baseline = popt[3]
+        sigma = width / (2 * np.sqrt(2 * np.log(2)))
+        area = height * sigma * np.sqrt(2 * np.pi)
+        y_fit = gaussian(x, *popt[0:4])
+        if peak_name is None:
+            peak_name = str(int(np.round(np.mean(fit_range),0)))
+        peak1 = Peak(*popt[0:4])
+        peak1.area = area
+        peak1.sigma = sigma
+        peak1.spectrum = SERS.SERS_Spectrum(x = x, y = y_fit)
+        peak1.name = '1400'
+
+        ## Peak 2
+        height = popt[4]
+        mu = popt[5]
+        width = popt[6]
+        baseline = popt[7]
+        sigma = width / (2 * np.sqrt(2 * np.log(2)))
+        area = height * sigma * np.sqrt(2 * np.pi)
+        y_fit = gaussian(x, *popt[4:8])
+        if peak_name is None:
+            peak_name = str(int(np.round(np.mean(fit_range),0)))
+        peak2 = Peak(*popt[4:8])
+        peak2.area = area
+        peak2.sigma = sigma
+        peak2.spectrum = SERS.SERS_Spectrum(x = x, y = y_fit)
+        peak2.name = '1420'
+
+        ## Peak 3
+        height = popt[8]
+        mu = popt[9]
+        width = popt[10]
+        baseline = popt[11]
+        sigma = width / (2 * np.sqrt(2 * np.log(2)))
+        area = height * sigma * np.sqrt(2 * np.pi)
+        y_fit = gaussian(x, *popt[8:12])
+        if peak_name is None:
+            peak_name = str(int(np.round(np.mean(fit_range),0)))
+        peak3 = Peak(*popt[8:12])
+        peak3.area = area
+        peak3.sigma = sigma
+        peak3.spectrum = SERS.SERS_Spectrum(x = x, y = y_fit)
+        peak3.name = '1435'
+        
+        ## Sum & residuals
+        y_fit = peak1.spectrum.y + peak2.spectrum.y + peak3.spectrum.y
+        residuals = y - y_fit
+        residuals_sum = np.abs(residuals).sum()
+        R_sq =  1 - ((np.sum(residuals**2)) / (np.sum((y - np.mean(y))**2)))
+        ### R_sq is total R_sq for triple
+        peak1.R_sq = R_sq
+        peak2.R_sq = R_sq
+        peak3.R_sq = R_sq
+        
+        # if peak_name is None:
+        #     peak_name = str(int(np.round(np.mean(fit_range),0)))
+        
+        ## Screening poor fits
+        if R_sq < R_sq_thresh or np.isnan(R_sq):
+            # print('\nPoor Fit')
+            # print(particle.name)
+            # print(spectrum.name)
+            # print('R^2 = ' + str(np.round(R_sq, 3)))
+            # print('Guess:', np.array(p0))
+            # print('Fit:  ', popt)
+            error = True
+        else:
+            error = False
+        peak1.error = error
+        peak2.error = error
+        peak3.error = error     
+        
+        ## Add peaks class to spectrum class 'peaks' list
+        particle.powerseries[i].peaks.append(peak1)
+        particle.powerseries[i].peaks.append(peak2)   
+        particle.powerseries[i].peaks.append(peak3)
+        
+        
+        # Plot
+        
+        if plot == True: # or error == True:
+            
+            fig, ax = plt.subplots(1,1,figsize=[18,9])
+            fig.suptitle(particle.name, fontsize = 'large')
+            ax.set_title(spectrum.name, fontsize = 'large')
+            ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
+            ax.set_ylabel('SERS Intensity (cts/mW/s)')
+            if smooth_first:
+                ax.plot(x, spectrum.y_baselined[fit_range_index[0]:fit_range_index[1]], color = 'grey', linestyle = '--', label = 'Data')
+                ax.plot(x, y, color = 'grey', label = 'Smoothed') 
+            else:
+                ax.plot(x, y, color = 'grey', linestyle = '--', label = 'Data')
+            ax.plot(x, peak1.spectrum.y, label = 'Fit A', color = 'red')
+            ax.plot(x, peak2.spectrum.y, label = 'Fit B', color = 'green')
+            ax.plot(x, peak3.spectrum.y, label = 'Fit C', color = 'blue')
+            ax.plot(x, y_fit, label = 'Fit', color = 'orange')
+            ax.plot(x, residuals, label = 'Residuals: ' + str(np.round(residuals_sum, 2)), color = 'black')
+            ax.plot(1,1, label = 'R$^2$: ' + str(np.round(R_sq, 3)), color = (0,0,0,0))
+            ax.plot(1,1, label = 'Run time (ms): ' + str(np.round(runtime * 1000, 3)), color = (0,0,0,0))
+            ax.set_xlim(fit_range[0], fit_range[1])
+            ax.set_ylim(None, y.max()*1.2)
+            ax.legend()
+            plt.show()
+            
+        ## Save
+        if save == True:
+            
+            fig, ax = plt.subplots(1,1,figsize=[18,9])
+            fig.suptitle(particle.name, fontsize = 'large')
+            ax.set_title(spectrum.name, fontsize = 'large')
+            ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
+            ax.set_ylabel('SERS Intensity (cts/mW/s)')
+            if smooth_first:
+                ax.plot(x, spectrum.y_baselined[fit_range_index[0]:fit_range_index[1]], color = 'grey', linestyle = '--', label = 'Data')
+                ax.plot(x, y, color = 'grey', label = 'Smoothed') 
+            else:
+                ax.plot(x, y, color = 'grey', linestyle = '--', label = 'Data')
+            ax.plot(x, peak1.spectrum.y, label = 'Fit A', color = 'red')
+            ax.plot(x, peak2.spectrum.y, label = 'Fit B', color = 'green')
+            ax.plot(x, peak3.spectrum.y, label = 'Fit C', color = 'blue')
+            ax.plot(x, y_fit, label = 'Fit', color = 'orange')
+            ax.plot(x, residuals, label = 'Residuals: ' + str(np.round(residuals_sum, 2)), color = 'black')
+            ax.plot(1,1, label = 'R$^2$: ' + str(np.round(R_sq, 3)), color = (0,0,0,0))
+            ax.plot(1,1, label = 'Run time (ms): ' + str(np.round(runtime * 1000, 3)), color = (0,0,0,0))
+            ax.set_xlim(fit_range[0], fit_range[1])
+            ax.set_ylim(None, y.max()*1.2)
+            ax.legend()
+            
+            save_dir = get_directory(particle.name)
+            fig.savefig(save_dir + particle.name + '_' + particle.powerseries[i].name + '_TripleFit' + '.svg', format = 'svg')
+            plt.close(fig)
+
+
+# Testing fit ranges
+
+particle = particles[1]
+# for spectrum in particle.powerseries:
+#     spectrum.peaks = []
+# fit_gaussian_powerseries(particle = particle, fit_range = [480, 545], smooth_first = True, plot = False)
+# fit_gaussian_powerseries(particle = particle, fit_range = [1100, 1150], smooth_first = True, plot = False)
+# fit_gaussian_powerseries(particle = particle, fit_range = [1170, 1220], smooth_first = True, plot = False)
+# fit_gaussian_powerseries(particle = particle, fit_range = [1280, 1310], smooth_first = True, plot = False)
+# fit_gaussian3_powerseries(particle = particle, fit_range = [1365, 1450], smooth_first = True, plot = False, save = False)
+# fit_gaussian_powerseries(particle = particle, fit_range = [1475, 1525], smooth_first = True, plot = False)
+# fit_gaussian_powerseries(particle = particle, fit_range = [1628, 1655], smooth_first = True,  plot = False)    
+# for spectrum in particle.powerseries:
+#     try:
+#         baseline = spectrum.peaks[6].baseline/spectrum.peaks[5].baseline
+#     except:
+#         baseline = 0
+#     ratio = Peak(height = spectrum.peaks[6].height/spectrum.peaks[5].height,
+#                  mu = None,
+#                  width = spectrum.peaks[6].width/spectrum.peaks[5].width,
+#                  baseline = baseline)
+#     ratio.area = spectrum.peaks[6].area/spectrum.peaks[5].area
+#     ratio.sigma = spectrum.peaks[6].sigma/spectrum.peaks[5].sigma
+#     ratio.name = '1435/1420'
+#     if spectrum.peaks[6].error or spectrum.peaks[5].error:
+#         ratio.error = True
+#     else:
+#         ratio.error = False
+#     spectrum.peaks.append(ratio)
+
+# plot_peak_areas(particle, save = False)
+
+#%% Loop over all particles and fit
+
+
+print('\nPeak Fitting...')
+
+for particle in tqdm(particles, leave = True):
+    
+    ## Clear previous peaks    
+    for spectrum in particle.powerseries:
+        spectrum.peaks = []
+        
+    ## Fit peaks
+    fit_gaussian_powerseries(particle = particle, fit_range = [480, 545], smooth_first = True, plot = False)
+    fit_gaussian_powerseries(particle = particle, fit_range = [1100, 1150], smooth_first = True, plot = False)
+    fit_gaussian_powerseries(particle = particle, fit_range = [1170, 1220], smooth_first = True, plot = False)
+    fit_gaussian_powerseries(particle = particle, fit_range = [1280, 1310], smooth_first = True, plot = False)
+    fit_gaussian3_powerseries(particle = particle, fit_range = [1365, 1450], smooth_first = True, plot = False, save = False)
+    # fit_gaussian_powerseries(particle = particle, fit_range = [1475, 1525], smooth_first = True, plot = False)
+    fit_gaussian_powerseries(particle = particle, fit_range = [1628, 1655], smooth_first = True,  plot = False)    
+    
+    ## 1435/1425 ratio peak
+    for spectrum in particle.powerseries:
+        try:
+            baseline = spectrum.peaks[6].baseline/spectrum.peaks[5].baseline
+        except:
+            baseline = 0
+        ratio = Peak(height = spectrum.peaks[6].height/spectrum.peaks[5].height,
+                     mu = None,
+                     width = spectrum.peaks[6].width/spectrum.peaks[5].width,
+                     baseline = baseline)
+        ratio.area = spectrum.peaks[6].area/spectrum.peaks[5].area
+        ratio.sigma = spectrum.peaks[6].sigma/spectrum.peaks[5].sigma
+        ratio.name = '1435/1420'
+        if spectrum.peaks[6].error or spectrum.peaks[5].error:
+            ratio.error = True
+        else:
+            ratio.error = False
+        spectrum.peaks.append(ratio)
+
+
+# Report number of failed fits
+
+count = 0
+for particle in particles:
+    for spectrum in particle.powerseries:
+        for peak in spectrum.peaks:
+            if peak.error: count += 1
+print('\nFit Errors (%): ')
+print(100*count/ (len(particles) * len(particles[0].powerseries) * len(spectrum.peaks)))
   
-#%% Plot min powerseries, direct powerseries, and timescan powerseries for each particle
+#%% Plotting functions
 
     
 # Plotting prep
@@ -634,9 +1368,142 @@ def plot_timescan_powerswitch_recovery(particle, save = False):
         save_dir = get_directory(particle.name)
         fig3.savefig(save_dir + particle.name + '633nm Powerswitch Recovery' + '.svg', format = 'svg')
         plt.close(fig3)
+        
+        
+        
+def plot_peak_areas(particle, save = False):
+    powerseries = particle.powerseries
+    
+    scan = np.arange(0, len(powerseries), 1, dtype = int)   
+    
+    
+    peaks_list = np.array([0,1,2,3,5,6,7,8])
+    
+    colors = ['grey', 'purple', 'brown', 'red', 'darkgreen', 'darkblue', 'chocolate', 'black']
+    
+    fig, axes = plt.subplots(len(peaks_list),1,figsize=[12,30], sharex = True)
+    fig.suptitle('633 nm Powerswitch Recovery - 2 $\mu$W / 90 $\mu$W' + '\n' + str(particle.name) + '\n' + 'Dark Time  = ' + str(np.round(particle.dark_time,2)) + 's', fontsize = 'x-large')
+    axes[len(axes)-1].set_xlabel('Scan No.', size = 'x-large')
+    
+    # axes[int(len(axes)/2)].set_ylabel('I$_{SERS}$ (%$\Delta$)', size = 'x-large')
+    
+    for i, peak in enumerate(powerseries[0].peaks):
+        
+        if i in peaks_list:
 
+            y = []
+            
+            ax = axes[np.where(peaks_list == i)[0][0]]    
+            ax.set_xticks(scan[::2])
+            ax.set_ylabel('I$_{SERS}$ (%$\Delta$)', size = 'x-large')
+                        
+            for spectrum in powerseries:
+                if spectrum.peaks[i].error:
+                    y.append(nan)
+                elif spectrum.peaks[i].name == '1435/1420':
+                    y.append(spectrum.peaks[i].area)
+                else:
+                    y.append(spectrum.peaks[i].area/powerseries[0].peaks[i].area)            
+            y = np.array(y)
+            peak_spec = SERS.SERS_Spectrum(x = scan, y = y)
+            
+            
+            
+            color = colors[np.where(peaks_list == i)[0][0]]
+            ax.plot(peak_spec.x, peak_spec.y, label = peak.name + 'cm $^{-1}$', color = color, zorder = 1)
+            ax.scatter(peak_spec.x[1::2], peak_spec.y[1::2], label = '90 $\mu$W', marker = 'o', facecolors = color, edgecolors = color, linewidth = 3, s = 200, zorder = 2)
+            ax.scatter(peak_spec.x[::2], peak_spec.y[::2], label = '2 $\mu$W', marker = 'o', facecolors = 'none', edgecolors = color, linewidth = 3, s = 200, zorder = 2)
+    
+            # ax.errorbar(scan, , yerr = error_1280, marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
+            # ax.errorbar(scan, , yerr = error_1330, marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1330 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
+            # ax.errorbar(scan, mean_1420, yerr = error_1420, marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1420 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
+            # ax.errorbar(scan, mean_1620, yerr = error_1620, marker = 'o', markersize = 6, color = 'purple', linewidth = 1, label = '1620 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
 
-# Loop over all particles and plot
+            ax.legend(loc = 'upper right')
+        
+            ylim = ax.get_ylim()            
+            if particle.dark_time > 0:
+                ax.vlines(9.5, ylim[0], ylim[1], color = 'black', alpha = 0.5, linewidth = 10)
+                ax.vlines(19.5, ylim[0], ylim[1], color = 'black', alpha = 0.5, linewidth = 10)
+                ax.vlines(29.5, ylim[0], ylim[1], color = 'black', alpha = 0.5, linewidth = 10)
+            ax.set_ylim(ylim)
+    
+    axes[len(axes)-1].set_ylabel('I$_{1435}$ / I$_{1420}$', size = 'x-large')
+    plt.tight_layout(pad = 1.5)
+    
+    ## Save
+    if save == True:
+        save_dir = get_directory(particle.name)
+        fig.savefig(save_dir + particle.name + 'Peak Area' + '.svg', format = 'svg')
+        plt.close(fig)
+        
+        
+def plot_peak_positions(particle, save = False):
+    powerseries = particle.powerseries
+    
+    scan = np.arange(0, len(powerseries), 1, dtype = int)   
+    
+    
+    peaks_list = np.array([0,1,2,3,5,6,7])
+    
+    colors = ['grey', 'purple', 'brown', 'red', 'darkgreen', 'darkblue', 'chocolate', 'black']
+    
+    fig, axes = plt.subplots(len(peaks_list),1,figsize=[12,30], sharex = True)
+    fig.suptitle('633 nm Powerswitch Recovery - 2 $\mu$W / 90 $\mu$W' + '\n' + str(particle.name) + '\n' + 'Dark Time  = ' + str(np.round(particle.dark_time,2)) + 's', fontsize = 'x-large')
+    axes[len(axes)-1].set_xlabel('Scan No.', size = 'x-large')
+    
+    # axes[int(len(axes)/2)].set_ylabel('I$_{SERS}$ (%$\Delta$)', size = 'x-large')
+    
+    for i, peak in enumerate(powerseries[0].peaks):
+        
+        if i in peaks_list:
+
+            y = []
+            
+            ax = axes[np.where(peaks_list == i)[0][0]]    
+            ax.set_xticks(scan[::2])
+            ax.set_ylabel('$\Delta$Peak Position (%)', size = 'x-large')
+                        
+            for spectrum in powerseries:
+                if spectrum.peaks[i].error:
+                    y.append(nan)
+                else:
+                    y.append(spectrum.peaks[i].mu/powerseries[0].peaks[i].mu)            
+            y = np.array(y)
+            peak_spec = SERS.SERS_Spectrum(x = scan, y = y)
+            
+            
+            
+            color = colors[np.where(peaks_list == i)[0][0]]
+            ax.plot(peak_spec.x, peak_spec.y, label = peak.name + 'cm $^{-1}$', color = color, zorder = 1)
+            ax.scatter(peak_spec.x[1::2], peak_spec.y[1::2], label = '90 $\mu$W', marker = 'o', facecolors = color, edgecolors = color, linewidth = 3, s = 200, zorder = 2)
+            ax.scatter(peak_spec.x[::2], peak_spec.y[::2], label = '2 $\mu$W', marker = 'o', facecolors = 'none', edgecolors = color, linewidth = 3, s = 200, zorder = 2)
+    
+            # ax.errorbar(scan, , yerr = error_1280, marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
+            # ax.errorbar(scan, , yerr = error_1330, marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1330 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
+            # ax.errorbar(scan, mean_1420, yerr = error_1420, marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1420 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
+            # ax.errorbar(scan, mean_1620, yerr = error_1620, marker = 'o', markersize = 6, color = 'purple', linewidth = 1, label = '1620 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
+
+            ax.legend(loc = 'upper right')
+        
+            ylim = ax.get_ylim()            
+            if particle.dark_time > 0:
+                ax.vlines(9.5, ylim[0], ylim[1], color = 'black', alpha = 0.5, linewidth = 10)
+                ax.vlines(19.5, ylim[0], ylim[1], color = 'black', alpha = 0.5, linewidth = 10)
+                ax.vlines(29.5, ylim[0], ylim[1], color = 'black', alpha = 0.5, linewidth = 10)
+            ax.set_ylim(ylim)
+    
+    # axes[len(axes)-1].set_ylabel('I$_{1435}$ / I$_{1420}$', size = 'x-large')
+    plt.tight_layout(pad = 1.5)
+    
+    ## Save
+    if save == True:
+        save_dir = get_directory(particle.name)
+        fig.savefig(save_dir + particle.name + 'Peak Position' + '.svg', format = 'svg')
+        plt.close(fig)
+   
+
+#%% Loop over all particles and plot
 
 for particle in tqdm(particles, leave = True):
     
@@ -649,388 +1516,196 @@ for particle in tqdm(particles, leave = True):
     # plot_min_powerseries(particle)
     # plot_direct_powerseries(particle)
     plot_timescan_powerswitch_recovery(particle, save = True)
+#%% Loop over all particles and plot
 
-
-#%% Peak fitting functions
-       
-
-def gaussian(x, height, center, width, width_height_frac = 0.5):
-    a = height
-    b = center
-    c = width/(2*np.sqrt(2*np.log(1/width_height_frac)))
-    
-    return a*np.exp(-(((x - b)**2)/(2*c**2)))
+print('\nPlotting...')
+# for particle in tqdm(particles, leave = True):
         
-def lorentzian(x, height, center, fwhm):
-    I = height
-    x0 = center
-    gamma = fwhm/2
-    numerator = gamma**2
-    denominator = (x - x0)**2 + gamma**2
-    quot = numerator/denominator
+#     plot_peak_areas(particle, save = False)
+#     plot_peak_positions(particle, save = False)
     
-    y = I*quot
-    return y
 
+#%% Making average particles & calculating powerseries
 
-#%% Fit peaks of individual regions
-
-particle = particles[11]
-powerseries = particle.powerseries
-
-
-# 1620 peak
-
-fit_range = [1351, 1460]
-
-height_frac = 0.5
-
-for i, spectrum in enumerate(powerseries):
-    
-    
-    fig, ax = plt.subplots(1,1,figsize=[18,9])
-    ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
-    ax.set_ylabel('SERS Intensity (cts/mW/s)')
-    spectrum.plot(ax = ax, plot_y = spectrum.y_baselined, color = 'black')
-    spectrum.plot(ax = ax, plot_y = spectrum.y_smooth, color = 'grey')
-
-    
-    fit_range_index = [np.where(np.abs(spectrum.x-fit_range[0]) <= 1)[0][0], np.where(np.abs(spectrum.x-fit_range[1]) <= 1)[0][0]]
-    
-    spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 3000, fs = 30000)
-    peak_fits = spt.approx_peak_gausses(spectrum.x[fit_range_index[0]:fit_range_index[1]], 
-                                        spectrum.y_smooth[fit_range_index[0]:fit_range_index[1]], 
-                                        smooth_first=False, plot= False, 
-                                        height_frac = height_frac, 
-                                        threshold=0.1)
-    
-    for this_peak in peak_fits:
-        # this_peak = peak_fits[]
-        height = this_peak[0]
-        mu = this_peak[1]
-        width = this_peak[2]
-        sigma = width/2.35
-        x = spectrum.x[fit_range_index[0]:fit_range_index[1]]
-        y = gaussian(x, height, mu, width, height_frac)
-    
-        this_peak = Peak(mu = mu, height = height, width = width, sigma = sigma, area = height * sigma * (2*np.pi)**(1/2)) 
-        this_peak.spectrum = SERS.SERS_Spectrum(x = x, y = y)    
-
-        this_peak.spectrum.plot(ax = ax)
-    
-    ax.set_xlim(fit_range)
-    plt.show()
-    
-    
-#%% Fit peaks of individual regions - scipy.optimize.curve_fit()
-
-particle = particles[11]
-powerseries = particle.powerseries
-
-
-def gauss(x: np.ndarray, a: float, mu: float, sigma: float, b: float) -> np.ndarray:
-    return (
-        a/sigma/np.sqrt(2*np.pi)
-    )*np.exp(
-        -0.5 * ((x-mu)/sigma)**2
-    ) + b
-
-# 1620 peak
-
-fit_range = [1351, 1450]
-
-height_frac = 0.5
-
-for i, spectrum in enumerate(powerseries[4:5]):
-    
-    fit_range_index = [np.where(np.abs(spectrum.x-fit_range[0]) <= 1)[0][0], np.where(np.abs(spectrum.x-fit_range[1]) <= 1)[0][0] + 1]
-    
-    spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 4000, fs = 30000)
-
-
-    X = spectrum.x[fit_range_index[0] : fit_range_index[1]]
-    Y = spectrum.y_smooth[fit_range_index[0] : fit_range_index[1]]
-    xmin, xmax = X.min(), X.max()  # left and right bounds
-    i_max = Y.argmax()             # index of highest value - for guess, assumed to be Gaussian peak
-    ymax = Y[i_max]     # height of guessed peak
-    mu0 = X[i_max]      # centre x position of guessed peak
-    b0 = (Y[0]+Y[len(Y)-1])/2  # height of baseline guess
-    i_half = np.argmax(Y >= (ymax + b0)/2)      # Index of first argument to be at least halfway up the estimated bell
-    # Guess sigma from the coordinates at i_half. This will work even if the point isn't at exactly
-    # half, and even if this point is a distant outlier the fit should still converge.
-    sigma0 = (mu0 - X[i_half]) / np.sqrt(2*np.log((ymax - b0)/(Y[i_half] - b0)))
-    # sigma0 = 3
-    a0 = (ymax - b0) * sigma0 * np.sqrt(2*np.pi)
-    p0 = a0, mu0, sigma0, b0
-    
-    try:
-        popt, _ = curve_fit(
-            f=gauss, xdata=X, ydata=Y, p0=p0,
-            bounds=(
-                (     1, xmin,           0,    0),
-                (np.inf, xmax, xmax - xmin, ymax),
-            ),
-        )
-    except:
-        popt = [a0, mu0, sigma0, b0]
-        print(i)
-        print('Fit Error')
-    # print('Guess:', np.array(p0))
-    # print('Fit:  ', popt)
-    
-    mu = popt[1]
-
-    sigma = popt[2]
-    width = sigma * 2.35
-    area = popt[0]
-    b = popt[3]
-    x = X
-    y = gauss(X, area, mu, sigma, b)
-    
-    this_peak = Peak(mu = mu, height = height, width = width, sigma = sigma, area = height * sigma * (2*np.pi)**(1/2)) 
-    this_peak.spectrum = SERS.SERS_Spectrum(x = x, y = y)    
-
-    fig, ax = plt.subplots(1,1,figsize=[18,9])
-    ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
-    ax.set_ylabel('SERS Intensity (cts/mW/s)')
-    spectrum.plot(ax = ax, plot_y = spectrum.y_baselined, color = 'black')
-    spectrum.plot(ax = ax, plot_y = spectrum.y_smooth)
-    this_peak.spectrum.plot(ax = ax)
-    ax.set_ylim(Y.min()/1.5, Y.max() * 1.1)
-    ax.set_xlim(fit_range)
-    
-#%% Peak fitting for whole spectrum - unused
-
-# #%% Test spectrum_tools.approx_peak_gausses
-
-
-# def gaussian(x, height, center, width, width_height_frac = 0.5):
-#     a = height
-#     b = center
-#     c = width/(2*np.sqrt(2*np.log(1/width_height_frac)))
-    
-#     return a*np.exp(-(((x - b)**2)/(2*c**2)))
-
-# fit_range = [None,None]   
-# particle = particles[32]
-# powerseries = particle.powerseries
-# spectrum = powerseries[9]
-# spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 5000, fs = 30000)
-# height_frac = 0.01
-# start = time.time()
-# x = spt.approx_peak_gausses(spectrum.x[fit_range[0]:fit_range[1]], spectrum.y_smooth[fit_range[0]:fit_range[1]], smooth_first=False, plot= False, height_frac = height_frac, threshold=0.1)
-# finish = time.time()
-# print(finish - start)
-
-# y  = []
-# for i, this_peak in enumerate(x):
-#     height = x[i][0]
-#     mu = x[i][1]
-#     width = x[i][2]
-#     sigma = width/2.35
-#     area =  height * sigma * (2*np.pi)**(1/2) 
-#     b = 0
-#     # y.append(gauss(wn_cal, a = area, mu = mu, sigma = sigma, b = b))
-#     y.append(gaussian(wn_cal, height, mu, width, height_frac))
-
-# y = np.array(y)
-# y_tot = y.sum(axis = 0)
-
-# residuals = spectrum.y_smooth[fit_range[0]:fit_range[1]] - y_tot[fit_range[0]:fit_range[1]]
-# residuals_tot = np.sum(np.abs(residuals))
-
-# fig, ax = plt.subplots(1,1,figsize=[18,9])
-# ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
-# ax.set_ylabel('SERS Intensity (cts/mW/s)')
-# fig.suptitle('spt.approx_peak_gausses()')
-# ax.plot(wn_cal, spectrum.y_smooth, color = (0,0,0,0.5), linewidth = 1, label = 'Data')
-# for i,peak in enumerate(x):
-#     ax.scatter(x[i][1], x[i][0], marker = 'x', s = 100)
-#     ax.plot(spectrum.x, y[i], zorder = 1, linestyle = 'dashed')
-# ax.plot(spectrum.x, y_tot, color = (1,0,0,0.6), linewidth = 2, label = 'Fit', zorder = 2)
-# ax.plot(spectrum.x[fit_range[0]:fit_range[1]], residuals, color = 'black', linewidth = 2, label = 'Residuals - Sum  = ' + str(np.round(residuals_tot,0)))
-# ax.plot(1,1, label = 'Run time (s): ' + str(finish - start))
-# # ax.set_xlim(spectrum.x[fit_range[0]],spectrum.x[fit_range[1]])
-# # ax.set_xlim(1350,1500)
-# ax.legend()
-
-
-# #%% Fit peaks for single powerseries - testing quality control
-
-
-# particle = particles[11]
-# powerseries = particle.powerseries
-
-# for j, spectrum in enumerate(powerseries):
-    
-#     if np.sum(spectrum.y_baselined) <= 1000:
-#         print(j)
-#         continue
-    
-#     spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 5000, fs = 30000)
-#     # print('\n')
-#     # print(spectrum.name)
-#     height_frac = 0.2
-#     passed = False
-#     while passed == False:
-#         start = time.time()
-#         x = spt.approx_peak_gausses(spectrum.x, spectrum.y_smooth, smooth_first=False, plot= False, height_frac = height_frac, threshold=0.1)
-#         finish = time.time()
-        
-#         y  = []
-#         for i, this_peak in enumerate(x):
-#             height = x[i][0]
-#             mu = x[i][1]
-#             width = x[i][2]
-#             sigma = width/2.35
-#             area =  height * sigma * (2*np.pi)**(1/2) 
-#             b = 0
-#             # y.append(gauss(wn_cal, a = area, mu = mu, sigma = sigma, b = b))
-#             y.append(gaussian(spectrum.x, height, mu, width, height_frac))
-        
-#         y = np.array(y)
-#         y_tot = y.sum(axis = 0)
-        
-#         residuals = spectrum.y_smooth - y_tot
-#         residuals_tot = np.sum(np.abs(residuals))
-    
-#         if np.abs(residuals).max() <= np.percentile(spectrum.y_smooth, 80) and residuals_tot <= np.sum(spectrum.y_smooth)*0.3:
-#             passed = True
-#             # print('Passed')
-#         else:
-#             height_frac -= 0.01
-            
-#         if height_frac <= 0.01:
-#             passed = True
-#             # print('Failed')
-#             continue
-    
-#     # print(residuals_tot/np.sum(spectrum.y_smooth))
-#     # print(np.abs(residuals).max())
-#     # print(np.percentile(spectrum.y_smooth, 75))
-    
-#     fig, ax = plt.subplots(1,1,figsize=[18,9])
-#     ax.set_xlabel('Raman Shifts (cm$^{-1}$)')
-#     ax.set_ylabel('SERS Intensity (cts/mW/s)')
-#     fig.suptitle(spectrum.name)
-#     ax.plot(spectrum.x, spectrum.y_smooth, color = (0,0,0,0.5), linewidth = 1, label = 'Data')
-#     for i,peak in enumerate(x):
-#         ax.scatter(x[i][1], x[i][0], marker = 'x', s = 100)
-#         ax.plot(spectrum.x, y[i], zorder = 1, linestyle = 'dashed')
-#     ax.plot(spectrum.x, y_tot, color = (1,0,0,0.6), linewidth = 2, label = 'Fit', zorder = 2)
-#     ax.plot(spectrum.x, residuals, color = 'black', linewidth = 2, label = 'Residuals - Sum  = ' + str(np.round(residuals_tot,0)))
-#     ax.plot(1,1, label = 'Run time (s): ' + str(finish - start))
-#     ax.plot(1,1, label = 'Height frac: ' + str(height_frac))
-#     # ax.set_xlim(spectrum.x[fit_range[0]],spectrum.x[fit_range[1]])
-#     ax.set_xlim(1550,1650)
-#     ax.legend()
-
-
-
-
-#%% Fit peaks for all particles
-
-for j, particle in tqdm(enumerate(particles), leave = True):
-    
-    peaks = []
-    height_frac = 0.02
-    powerseries = particle.powerseries
-    
-    for i, spectrum in enumerate(powerseries):
-        
-        if np.sum(spectrum.y_baselined) <= 1000:
-            these_peaks = []
-            continue
-
-        spectrum.y_smooth = spt.butter_lowpass_filt_filt(spectrum.y_baselined, cutoff = 5000, fs = 30000)
-        
-        x = spt.approx_peak_gausses(spectrum.x, spectrum.y_smooth, smooth_first=False, plot= False, height_frac = height_frac, threshold=0.1)
-
-        these_peaks = []
-        
-        for k in range(0, len(x)-1):
-            height = x[k][0]
-            mu = x[k][1]
-            width = x[k][2]
-            sigma = width/2.35
-            area =  height * sigma * (2*np.pi)**(1/2) 
-            b = 0
-            y = gaussian(spectrum.x, height, mu, width, height_frac)
-        
-            this_peak = Peak(mu, height, width, sigma, area)
-            this_peak.y = y
-            these_peaks.append(this_peak)
-
-        peaks.append(these_peaks)
-
-    particle.peaks = peaks
-
-#%% Get dark times
-
+avg_particles = []
 dark_times = []
 
+## Get dark times
 for particle in particles:
-    
     if particle.dark_time not in dark_times:
         dark_times.append(particle.dark_time)
+
+
+# Loop over each dark time - one avg particle per dark time
+for dark_time in dark_times:
+    ## Set up avg particle
+    avg_particle = Particle()
+    avg_particle.dark_time = dark_time
+    avg_particle.name = 'MLAgg_Avg_' + str(int(avg_particle.dark_time)) + 's'
+    avg_particle.powerseries = []
     
-
-#%% Get chosen peaks
-
-for particle in particles:
-
-    particle.peak_510 = []
-    particle.peak_1280 = []
-    particle.peak_1330 = []
-    particle.peak_1420 = []    
-    particle.peak_1620 = []
+    ## Set up avg powerseries
+    for i in range(0, len(particles[0].powerseries)):
+        avg_particle.powerseries.append(SERS.SERS_Spectrum(x = particles[0].powerseries[0].x, y = np.zeros(particles[0].powerseries[0].y.shape)))
+        avg_particle.powerseries[i].y_baselined = avg_particle.powerseries[i].y
     
-    for these_peaks in peaks:
+    ## Add y-values to avg powerseries
+    counter = 0
+    for particle in particles:
+        if particle.dark_time == avg_particle.dark_time:
+            counter += 1
+            for i in range(0, len(avg_particle.powerseries)):
+                avg_particle.powerseries[i].y_baselined += particle.powerseries[i].y_baselined
+    
+    ## Divide
+    for spectrum in avg_particle.powerseries:
+        spectrum.y_baselined = spectrum.y_baselined/counter
+            
+    avg_particles.append(avg_particle)
+ 
+#%% Get average peak fitting data into avg particles
+
+from copy import deepcopy
+
+for avg_particle in avg_particles:
+    
+    ## Set up peaks list
+    for spectrum in avg_particle.powerseries:
+        spectrum.peaks = deepcopy(particles[0].powerseries[0].peaks)
         
-        for peak in these_peaks:
+        for peak in spectrum.peaks:
+            peak.area = 0
+            peak.baseline = 0
+            peak.error = False
+            peak.height = 0
+            peak.mu = 0
+            peak.sigma = 0
+            peak.width = 0
+    
+    ## Add peaks
+    counter = 0
+    for particle in particles:
+        if avg_particle.dark_time == particle.dark_time:
+            counter += 1
+            for i, spectrum in enumerate(avg_particle.powerseries):
+                for j, peak in enumerate(spectrum.peaks):
+                    this_peak = deepcopy(particle.powerseries[i].peaks[j])
+                    peak.area += this_peak.area
+                    peak.baseline += this_peak.baseline
+                    # peak.error += this_peak.
+                    peak.height += this_peak.height
+                    try:
+                        peak.mu += this_peak.mu
+                    except: pass
+                    peak.sigma += this_peak.sigma
+                    peak.width += this_peak.width
+    
+    for spectrum in avg_particle.powerseries:
+        for peak in spectrum.peaks:
+            peak.area = peak.area/counter
+            peak.baseline = peak.baseline/baseline
+            # peak.error += this_peak.
+            peak.height = peak.height/counter
+            try:
+                peak.mu += this_peak.mu
+            except: pass
+            peak.sigma = peak.sigma/counter
+            peak.width = peak.width/counter
             
-            if peak.mu > 500 and peak.mu < 520 and peak.height > 5000:
-                particle.peak_510.append(peak)
-            
-            if peak.mu > 1280 and peak.mu < 1320 and peak.height > 15000:
-                particle.peak_1280.append(peak)
-            
-            if peak.mu > 1310 and peak.mu < 1350 and peak.height > 10000:
-                particle.peak_1330.append(peak)
-                
-            if peak.mu > 1400 and peak.mu < 1440 and peak.height > 18000:
-                particle.peak_1420.append(peak)
-            
-            if peak.mu > 1600 and peak.height >10000:
-                particle.peak_1620.append(peak)
+#%% Loop over avg particles and plot
 
-    # if len(particle.peak_510) != 40:
-    #     print(particle.name)
-    #     print(len(particle.peak_510))
+for particle in avg_particles:
+    
+    plot_timescan_powerswitch_recovery(particle, save = True)
+    plot_peak_areas(particle, save = True)
+    plot_peak_positions(particle, save = True)
 
-    #     print('510')
 
-    # if len(particle.peak_1280) != 40:
-    #     print(particle.name)
-    #     print(len(particle.peak_1280))
+#%% Plot peak area recovery v. dark_time (just for avg particles)
 
-    #     print('1280')
+for particle in avg_particles:
 
-    # if len(particle.peak_1330) != 40:
-    #     print(particle.name)
-    #     print(len(particle.peak_1330))
-    #     print('1330')                
-
-    if len(particle.peak_1420) != 40:
-        print(particle.name)
-        print(len(particle.peak_1420))
-        print('1420')
+    for i, peak in enumerate(particle.powerseries[0].peaks):
         
-    if len(particle.peak_1620) != 37:
-        print(particle.name)
-        print(len(particle.peak_1620))
-        print('1620')
+        peak.recovery = (particle.powerseries[10].peaks[i].area - particle.powerseries[8].peaks[i].area) / particle.powerseries[8].peaks[i].area
+    
+        
+    scan = np.arange(0, len(particle.powerseries), 1, dtype = int)   
+    
+    
+    for i, peak in enumerate(particle.powerseries[0].peaks):
+        
+        plt.scatter(i, peak.recovery, color = 'blue')
+        # plt.scatter(i, peak.damage, color = 'red')
+    
+    
+powerseries = particle.powerseries
 
+scan = np.arange(0, len(powerseries), 1, dtype = int)   
+
+
+peaks_list = np.array([0,1,2,3,5,6,7,8])
+
+colors = ['grey', 'purple', 'brown', 'red', 'darkgreen', 'darkblue', 'chocolate', 'black']
+
+fig, axes = plt.subplots(len(peaks_list),1,figsize=[12,30], sharex = True)
+fig.suptitle('633 nm Powerswitch Recovery - 2 $\mu$W / 90 $\mu$W', fontsize = 'x-large')
+axes[len(axes)-1].set_xlabel('Dark time (s)', size = 'x-large')
+
+# axes[int(len(axes)/2)].set_ylabel('I$_{SERS}$ (%$\Delta$)', size = 'x-large')
+
+for i, peak in enumerate(powerseries[0].peaks):
+    
+    if i in peaks_list:
+
+        y = []
+        
+        ax = axes[np.where(peaks_list == i)[0][0]]    
+        ax.set_xticks(np.linspace(dark_times[0], dark_times[-1], 11))
+        ax.set_ylabel('I$_{SERS}$ (%$\Delta$)', size = 'x-large')
+                    
+        for particle in avg_particles:
+                y.append(particle.powerseries[0].peaks[i].recovery)            
+        
+        y = np.array(y)
+        peak_spec = SERS.SERS_Spectrum(x = np.array(dark_times), y = y)
+        
+        
+        color = colors[np.where(peaks_list == i)[0][0]]
+        ax.plot(peak_spec.x, peak_spec.y, label = peak.name + 'cm $^{-1}$', color = color, zorder = 1)
+        ax.scatter(peak_spec.x, peak_spec.y, label = '2 $\mu$W', marker = 'o', facecolors = 'none', edgecolors = color, linewidth = 3, s = 200, zorder = 2)
+
+        # ax.errorbar(scan, , yerr = error_1280, marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
+        # ax.errorbar(scan, , yerr = error_1330, marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1330 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
+        # ax.errorbar(scan, mean_1420, yerr = error_1420, marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1420 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
+        # ax.errorbar(scan, mean_1620, yerr = error_1620, marker = 'o', markersize = 6, color = 'purple', linewidth = 1, label = '1620 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
+
+        ax.legend(loc = 'upper right')
+    
+        # ylim = ax.get_ylim()            
+        # if particle.dark_time > 0:
+        #     ax.vlines(9.5, ylim[0], ylim[1], color = 'black', alpha = 0.5, linewidth = 10)
+        #     ax.vlines(19.5, ylim[0], ylim[1], color = 'black', alpha = 0.5, linewidth = 10)
+        #     ax.vlines(29.5, ylim[0], ylim[1], color = 'black', alpha = 0.5, linewidth = 10)
+        # ax.set_ylim(ylim)
+ax.set_xscale('log')
+axes[len(axes)-1].set_ylabel('I$_{1435}$ / I$_{1420}$', size = 'x-large')
+plt.tight_layout(pad = 1.5)
+    
+    # ## Save
+    # if save == True:
+    #     save_dir = get_directory(particle.name)
+    #     fig.savefig(save_dir + particle.name + 'Peak Area' + '.svg', format = 'svg')
+    #     plt.close(fig)
+    
+#%% Long spectrum plot to save
+
+fig, ax = plt.subplots(1,1,figsize=[12,30], sharex = True)
+
+spectrum = avg_particles[0].powerseries[1]
+ax.plot(spectrum.y/spectrum.y.max(), spectrum.x)
+ax.invert_yaxis()
+ax.set_ylabel('Raman Shifts (cm$^{-1}$)', fontsize = 'x-large')
 
 #%% Get averages & errors of chosen peaks' amplitude
 
@@ -1051,176 +1726,7 @@ avg_1280 = np.array(avg_1280)
 mean_1280 = np.mean(avg_1280, axis = 0)
 error_1280 = np.std(avg_1280, axis = 0)/sqrt(31)        
 
-avg_1330 = []
-for i, particle in enumerate(particles[0:31]):
-    this_avg_1330 = []
-    for j in range(0,40):
-        this_avg_1330.append(particle.peak_1330[j].area)
-    avg_1330.append(this_avg_1330)
-avg_1330 = np.array(avg_1330)
-mean_1330 = np.mean(avg_1330, axis = 0)
-error_1330 = np.std(avg_1330, axis = 0)/sqrt(31)    
 
-# avg_1420 = []
-# for i, particle in enumerate(particles[0:31]):
-#     this_avg_1420 = []
-#     for j, spectrum in enumerate(particle.powerseries):
-#         this_avg_1420.append(particle.peak_1420[j].area)
-#     avg_1420.append(this_avg_1420)
-# avg_1420 = np.array(avg_1420)
-# mean_1420 = np.mean(avg_1420, axis = 0)
-# error_1420 = np.std(avg_1420, axis = 0)/sqrt(31)       
-
-# avg_1620 = []
-# for i, particle in enumerate(particles[0:31]):
-#     this_avg_1620 = []
-#     for j, spectrum in enumerate(particle.powerseries):
-#         this_avg_1620.append(particle.peak_1620[j].area)
-#     avg_1620.append(this_avg_1620)
-# avg_1620 = np.array(avg_1620)
-# mean_1620 = np.mean(avg_1620, axis = 0)
-# error_1620 = np.std(avg_1620, axis = 0)/sqrt(31)     
-            
-#%% Plot peak amplitude v. power of MLAgg Avg
-
-# Plot peak amplitude v. power
-
-particle_name = 'MLAgg_Avg'
-
-fig, ax = plt.subplots(1,1,figsize=[12,9])
-ax.set_xlabel('Scan No.', size = 'large')
-ax.set_ylabel('Peak Intensity', size = 'large')
-scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
-ax.set_xticks(scan)
-ax.errorbar(scan, mean_1280, yerr = error_1280, marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
-ax.errorbar(scan, mean_1330, yerr = error_1330, marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1330 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
-# ax.errorbar(scan, mean_1420, yerr = error_1420, marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1420 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
-# ax.errorbar(scan, mean_1620, yerr = error_1620, marker = 'o', markersize = 6, color = 'purple', linewidth = 1, label = '1620 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
-ax.legend()
-fig.suptitle('785nm Powerseries - Peak Amplitude - Full Powerseries', fontsize = 'large')
-ax.set_title('Co-TAPP-SMe MLAgg Avg')
-
-## Save plot
-# save_dir = get_directory(particle_name)
-# plt.savefig(save_dir + particle_name + 'Peak Amplitude Full Powerseries' + '.svg', format = 'svg')
-# plt.close(fig)
-
-#%%
-# Plot peak amplitude v. power - low power only
-
-fig, ax = plt.subplots(1,1,figsize=[12,9])
-ax.set_xlabel('Previous Laser Power', size = 'large')
-ax.set_ylabel('Peak Intensity', size = 'large')
-ax.set_xscale('log')
-# ax.set_yscale('log')
-scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
-ax.errorbar(powers_list[0::2], mean_1280[1::2], yerr = error_1280[1::2], marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
-ax.errorbar(powers_list[0::2], mean_1330[1::2], yerr = error_1330[1::2], marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1330 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
-ax.errorbar(powers_list[0::2], mean_1420[1::2], yerr = error_1420[1::2], marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1420 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
-ax.errorbar(powers_list[0::2], mean_1620[1::2], yerr = error_1620[1::2], marker = 'o', markersize = 6, color = 'purple', linewidth = 1, label = '1620 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
-ax.legend(loc = 'upper right')
-fig.suptitle('785nm Powerseries - Peak Amplitude - Min Powerseries', fontsize = 'large')
-ax.set_title('Co-TAPP-SMe MLAgg Avg')
-
-# ## Save plot
-# save_dir = get_directory(particle_name)
-# plt.savefig(save_dir + particle_name + 'Peak Amplitude Min Powerseries' + '.svg', format = 'svg')
-# plt.close(fig)
-
-#%%
-# Plot peak amplitude v. power - direct powerseries
-
-fig, ax = plt.subplots(1,1,figsize=[12,9])
-ax.set_xlabel('Laser Power', size = 'large')
-ax.set_ylabel('Peak Intensity', size = 'large')
-ax.set_xscale('log')
-scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
-ax.errorbar(powers_list[0::2], mean_1280[0::2], yerr = error_1280[1::2], marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
-ax.errorbar(powers_list[0::2], mean_1330[0::2], yerr = error_1330[1::2], marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1330 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
-ax.errorbar(powers_list[0::2], mean_1420[0::2], yerr = error_1420[1::2], marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1420 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
-ax.errorbar(powers_list[0::2], mean_1620[0::2], yerr = error_1620[1::2], marker = 'o', markersize = 6, color = 'purple', linewidth = 1, label = '1620 cm$^{-1}$', zorder = 2, markerfacecolor = 'none', markeredgewidth = 2, capsize = 5, elinewidth = 2)
-ax.legend()
-fig.suptitle('785nm Powerseries - Peak Amplitude - Direct Powerseries', fontsize = 'large')
-ax.set_title('Co-TAPP-SMe MLAgg Avg')
-
-# ## Save plot
-# save_dir = get_directory(particle_name)
-# plt.savefig(save_dir + particle_name + 'Peak Amplitude Direct Powerseries' + '.svg', format = 'svg')
-# plt.close(fig)
-
-
-#%% Plot %change peak amplitude v. power of MLAgg Avg
-
-dp1 = (mean_1280[:] - mean_1280[0])/mean_1280[0] * 100
-dp2 = (mean_1330[:] - mean_1330[0])/mean_1330[0] * 100
-dp3 = (mean_1420[:] - mean_1420[0])/mean_1420[0] * 100
-dp4 = (mean_1620[:] - mean_1620[0])/mean_1620[0] * 100
-
-# Plot peak amplitude v. power
-
-particle_name = 'MLAgg_Avg'
-
-fig, ax = plt.subplots(1,1,figsize=[12,9])
-ax.set_xlabel('Scan No.', size = 'large')
-ax.set_ylabel('$\Delta_{Intensity}$ (%)', size = 'large')
-ax.set_xticks(scan[::2])
-scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
-ax.plot(scan, dp1, marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2)
-ax.plot(scan, dp2, marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1330 cm$^{-1}$', zorder = 2)  
-ax.plot(scan, dp3, marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1420 cm$^{-1}$', zorder = 2)        
-ax.plot(scan, dp4, marker = 'o', markersize = 6, color = 'purple', linewidth = 1, label = '1620 cm$^{-1}$', zorder = 2)        
-
-ax.legend()
-fig.suptitle('785nm Powerseries - % Change Peak Amplitude - Full Powerseries', fontsize = 'large')
-ax.set_title('Co-TAPP-SMe MLAgg Avg')
-
-## Save plot
-# save_dir = get_directory(particle_name)
-# plt.savefig(save_dir + particle_name + 'Change Peak Amplitude Full Powerseries' + '.svg', format = 'svg')
-# plt.close(fig)
-
-#%%
-
-# Plot peak amplitude v. power - low power only
-
-fig, ax = plt.subplots(1,1,figsize=[12,9])
-ax.set_xlabel('Previous Laser Power', size = 'large')
-ax.set_ylabel('$\Delta_{Intensity}$ (%)', size = 'large')
-ax.set_xscale('log')
-scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
-ax.plot(powers_list[0::2], dp1[1::2], marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp2[1::2], marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1330 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp3[1::2], marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1420 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp4[1::2], marker = 'o', markersize = 6, color = 'purple', linewidth = 1, label = '1620 cm$^{-1}$', zorder = 2)
-ax.legend(loc = 'upper right')
-fig.suptitle('785nm Powerseries - % Change Peak Amplitude - Min Powerseries', fontsize = 'large')
-ax.set_title('Co-TAPP-SMe MLAgg Avg')
-
-# ## Save plot
-# save_dir = get_directory(particle_name)
-# plt.savefig(save_dir + particle_name + 'Change Peak Amplitude Min Powerseries' + '.svg', format = 'svg')
-# plt.close(fig)
-
-#%%
-# Plot peak amplitude v. power - direct powerseries
-
-fig, ax = plt.subplots(1,1,figsize=[12,9])
-ax.set_xlabel('Laser Power', size = 'large')
-ax.set_ylabel('$\Delta_{Intensity}$ (%)', size = 'large')
-ax.set_xscale('log')
-scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
-ax.plot(powers_list[0::2], dp1[0::2], marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp2[0::2], marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1330 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp3[0::2], marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1420 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp4[0::2], marker = 'o', markersize = 6, color = 'purple', linewidth = 1, label = '1620 cm$^{-1}$', zorder = 2)
-ax.legend()
-fig.suptitle('785nm Powerseries - % Change Peak Amplitude - Direct Powerseries', fontsize = 'large')
-ax.set_title('Co-TAPP-SMe MLAgg Avg')
-
-# ## Save plot
-# save_dir = get_directory(particle_name)
-# plt.savefig(save_dir + particle_name + 'Change Peak Amplitude Direct Powerseries' + '.svg', format = 'svg')
-# plt.close(fig)
 
 
 
@@ -1235,149 +1741,3 @@ avg_particle.peak_1330 = np.zeros(len(avg_particle.powerseries))
 avg_particle.peak_1420 = np.zeros(len(avg_particle.powerseries))
 avg_particle.peak_1620 = np.zeros(len(avg_particle.powerseries))
 
-avg_1280 = []
-for i, particle in enumerate(particles[0:31]):
-    this_avg_1280 = []
-    for j, spectrum in enumerate(particle.powerseries):
-        this_avg_1280.append(particle.peak_1280[j].mu)
-    avg_1280.append(this_avg_1280)
-avg_1280 = np.array(avg_1280)
-mean_1280 = np.mean(avg_1280, axis = 0)
-error_1280 = np.std(avg_1280, axis = 0)/sqrt(31)        
-
-avg_1330 = []
-for i, particle in enumerate(particles[0:31]):
-    this_avg_1330 = []
-    for j, spectrum in enumerate(particle.powerseries):
-        this_avg_1330.append(particle.peak_1330[j].mu)
-    avg_1330.append(this_avg_1330)
-avg_1330 = np.array(avg_1330)
-mean_1330 = np.mean(avg_1330, axis = 0)
-error_1330 = np.std(avg_1330, axis = 0)/sqrt(31)    
-
-avg_1420 = []
-for i, particle in enumerate(particles[0:31]):
-    this_avg_1420 = []
-    for j, spectrum in enumerate(particle.powerseries):
-        this_avg_1420.append(particle.peak_1420[j].mu)
-    avg_1420.append(this_avg_1420)
-avg_1420 = np.array(avg_1420)
-mean_1420 = np.mean(avg_1420, axis = 0)
-error_1420 = np.std(avg_1420, axis = 0)/sqrt(31)       
-
-avg_1620 = []
-for i, particle in enumerate(particles[0:31]):
-    this_avg_1620 = []
-    for j, spectrum in enumerate(particle.powerseries):
-        this_avg_1620.append(particle.peak_1620[j].mu)
-    avg_1620.append(this_avg_1620)
-avg_1620 = np.array(avg_1620)
-mean_1620 = np.mean(avg_1620, axis = 0)
-error_1620 = np.std(avg_1620, axis = 0)/sqrt(31)  
-            
-#%% Plot peak position v. power
-
-
-# Plot peak position v. power
-
-dp1 = (mean_1280[:] - mean_1280[0])/mean_1280[0] * 100
-dp2 = (mean_1330[:] - mean_1330[0])/mean_1330[0] * 100
-dp3 = (mean_1420[:] - mean_1420[0])/mean_1420[0] * 100
-dp4 = (mean_1620[:] - mean_1620[0])/mean_1620[0] * 100
-
-particle_name = 'MLAgg_Avg'
-
-fig, ax = plt.subplots(1,1,figsize=[12,9])
-ax.set_xlabel('Scan No.', size = 'large')
-ax.set_ylabel('Peak Position Change (cm$^{-1}$)', size = 'large')
-scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
-ax.plot(scan, dp1, marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2)
-ax.plot(scan, dp2, marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1330 cm$^{-1}$', zorder = 2)  
-ax.plot(scan, dp3, marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1420 cm$^{-1}$', zorder = 2)        
-ax.plot(scan, dp4, marker = 'o', markersize = 6, color = 'purple', linewidth = 1, label = '1620 cm$^{-1}$', zorder = 2)        
-ax.legend()
-fig.suptitle('785nm Powerseries - Peak Position - Full Powerseries', fontsize = 'large')
-ax.set_title('Co-TAPP-SMe MLAgg Avg')
-
-# ## Save plot
-# save_dir = get_directory(particle_name)
-# plt.savefig(save_dir + particle_name + 'Peak Position Full Powerseries' + '.svg', format = 'svg')
-# plt.close(fig)
-#%%
-
-# # Plot peak pos v. power - low power only
-
-# particle_name = 'MLAgg_Avg'
-
-fig, ax = plt.subplots(1,1,figsize=[12,9])
-ax.set_xlabel('Previous Laser Power', size = 'large')
-ax.set_ylabel('Peak Position Change (cm$^{-1}$)', size = 'large')
-ax.set_xscale('log')
-scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
-ax.plot(powers_list[0::2], dp1[1::2], marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp2[1::2], marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1330 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp3[1::2], marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1420 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp4[1::2], marker = 'o', markersize = 6, color = 'purple', linewidth = 1, label = '1620 cm$^{-1}$', zorder = 2)
-ax.legend()
-fig.suptitle('785nm Powerseries - Peak Position - Min Powerseries', fontsize = 'large')
-ax.set_title('Co-TAPP-SMe MLAgg Avg')
-
-# ## Save plot
-# save_dir = get_directory(particle_name)
-# plt.savefig(save_dir + particle_name + 'Peak Position Min Powerseries' + '.svg', format = 'svg')
-# plt.close(fig)
-            
-#%%
-# Plot peak pos v. power - direct powerseries
-
-particle_name = 'MLAgg_Avg'
-
-fig, ax = plt.subplots(1,1,figsize=[12,9])
-ax.set_xlabel('Laser Power', size = 'large')
-ax.set_ylabel('Peak Position Change (cm$^{-1}$)', size = 'large')
-ax.set_xscale('log')
-scan = np.arange(0,len(dark_powerseries),1, dtype = int)   
-ax.plot(powers_list[0::2], dp1[0::2], marker = 'o', markersize = 6, color = 'black', linewidth = 1, label = '1280 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp2[0::2], marker = 'o', markersize = 6, color = 'red', linewidth = 1, label = '1330 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp3[0::2], marker = 'o', markersize = 6, color = 'blue', linewidth = 1, label = '1420 cm$^{-1}$', zorder = 2)
-ax.plot(powers_list[0::2], dp4[0::2], marker = 'o', markersize = 6, color = 'purple', linewidth = 1, label = '1620 cm$^{-1}$', zorder = 2)
-ax.legend()
-fig.suptitle('785nm Powerseries - Peak Position - Direct Powerseries', fontsize = 'large')
-ax.set_title('Co-TAPP-SMe MLAgg Avg')
-
-# ## Save plot
-# save_dir = get_directory(particle_name)
-# plt.savefig(save_dir + particle_name + 'Peak Position Direct Powerseries' + '.svg', format = 'svg')
-# plt.close(fig)
-
-
-#%%
-
-particle_name = 'MLAgg_Avg'
-
-fig, ax = plt.subplots(1,1,figsize=[12,9])
-ax.set_xlabel('Scan #', size = 'large')
-ax.set_ylabel('Peak Amplitude', size = 'large')
-this_particle_list = [particles[0], particles[10], particles[20], particles[30], particles[40], particles[50], particles[60], particles[70], particles[80], particles[90]]
-particle = particles[0]
-for i in range(0, 5):
-    if i % 2 == 0:
-        marker = 'x'
-    else:
-        marker = 'o'
-        
-    ax.scatter(i, particle.peak_510[i].area, color = 'darkblue', label = '510', marker = marker)
-    ax.scatter(i, particle.peak_1280[i].area, color = 'purple', label = '1280', marker = marker)
-    ax.scatter(i, particle.peak_1330[i].area, color = 'darkorange', label = '1330', marker = marker)
-    ax.scatter(i, particle.peak_1420[i].area, color = 'green', label = '1420', marker = marker)
-    ax.scatter(i, particle.peak_1620[i].area, color = 'red', label = '1620', marker = marker)
-    
-# ax.legend()
-fig.suptitle('633nm Powerswitch Recover - Peak Amplitude', fontsize = 'large')
-ax.set_title('Co-TAPP-SMe MLAgg - ' + str(np.round(particle.dark_time, 2)) + ' s Recovery Time')
-
-
-# ## Save plot
-# save_dir = get_directory(particle_name)
-# plt.savefig(save_dir + particle_name + 'Peak Position Direct Powerseries' + '.svg', format = 'svg')
-# plt.close(fig)
