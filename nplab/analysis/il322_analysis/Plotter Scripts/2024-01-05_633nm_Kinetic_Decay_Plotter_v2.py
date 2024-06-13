@@ -12,7 +12,9 @@ Plotter for Co-TAPP-SMe 633nm SERS Kinetic Powerseries
 - Stores data in Particle() class
 - Plot timescans with dark time, background timescans, fitted peak area & position of several peaks, 
   and recovery of peak area and background through kinetic scan
-- Exponential decay fit of scan  
+- Exponential decay fit of scan peak areas & background
+
+  
 
 
 Data: 2024-01-05_633nm_SERS_Powerseries_LongKinetic.h5
@@ -78,14 +80,14 @@ class Peak():
 #%% h5 files
 
 ## Load raw data h5
-my_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\2024-01-05_633nm_SERS_Powerseries_LongKinetic.h5")
+my_h5 = h5py.File(r"C:\Users\ishaa\OneDrive\Desktop\Offline Data\2024-01-05_633nm_SERS_Powerseries_LongKinetic.h5")
 
 
 #%% Spectral calibration
 
 # Using 2024-04-10.h5 data for cal, since no ref measurements in this dataset
 
-cal_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\2024-04-10_633nm-BPT-MLAgg-Powerseries_633nm-Co-TAPP-SMe_MLAgg-Powerswitch_CCD-Flatness.h5")
+cal_h5 = h5py.File(r"C:\Users\ishaa\OneDrive\Desktop\Offline Data\2024-04-10_633nm-BPT-MLAgg-Powerseries_633nm-Co-TAPP-SMe_MLAgg-Powerswitch_CCD-Flatness.h5")
 
 
 # Spectral calibration
@@ -232,7 +234,7 @@ ax.set_xlim(1150, 1240)
 
 def get_directory(particle_name):
         
-    directory_path = r'C:\Users\il322\Desktop\Offline Data\2024-01-05 633nm Kinetic Decay Powerseries Analysis NEW\\' + particle_name + '\\'
+    directory_path = r"C:\Users\ishaa\OneDrive\Desktop\Offline Data\2024-01-05 633nm Kinetic Decay Powerseries Analysis NEW\\" + particle_name + '\\'
     
     if not os.path.exists(directory_path):
         os.makedirs(directory_path)
@@ -330,7 +332,7 @@ for particle_scan in scan_list:
     
     ## Loop over particles in particle scan
     for particle in particle_list:
-        if 'Particle' not in particle:
+        if 'Particle_' not in particle:
             particle_list.remove(particle)
             
         if '97' in particle:
@@ -400,25 +402,24 @@ def process_timescan(particle, chunk_size = 1):
 #%% Loop over all particles and process powerswitch
 
 print('\nProcessing spectra...')
+
 for i, particle in tqdm(enumerate(particles), leave = True):
     
     if i < 20:
-        chunk_size = 10
-    elif i < 30:
-        chunk_size = 5
+        chunk_size = 20
     elif i < 40:
-        chunk_size = 3
+        chunk_size = 10
     elif i < 60:
-        chunk_size = 2
+        chunk_size = 4
     else:
-        chunk_size = 1
+        chunk_size = 2
     
     process_timescan(particle, chunk_size = chunk_size)
 
+  
 ## Empirically tested chunk size for different powers
     ## Particle 0-19 = 10
-    ## Particle 20-29 = 5
-    ## Particle 30-39 = 3
+    ## Particle 20-39 = 5
     ## Particle 40-59 = 2
     ## Particle 60-   = 1
 #%% Peak fitting functions
@@ -615,7 +616,7 @@ particle = particles[51]
 #%% Peak fit for triple Gaussian region
 
 def fit_gaussian3_timescan(particle, fit_range = [1365, 1450], peak_name = None, R_sq_thresh = 0.85, smooth_first = False, plot = False, save = False):
-
+    
     '''
     Fit triple gaussian peak to given range of each spectrum in timescan (highly tuned for 1365 - 1450cm-1 region)
     Adds peaks to timescan.peaks[i]
@@ -1647,8 +1648,6 @@ def plot_timescan(particle, save = False):
     
     timescan = particle.timescan
     
-    print(timescan.Y.shape)
-    print(timescan.exposure)
     
     fig, (ax) = plt.subplots(1, 1, figsize=[16,16])
     t_plot = np.linspace(0,len(timescan.Y)*timescan.exposure,len(timescan.Y))
@@ -1702,7 +1701,7 @@ def plot_peak_areas(particle, save = False):
        
     timescan = particle.timescan
     
-    time = np.arange(0, len(timescan.Y) * chunk_size, chunk_size, dtype = int)   
+    time = np.arange(0, len(timescan.Y) * timescan.chunk_size, timescan.chunk_size, dtype = int)   
     
     peaks_list = np.array([0,1,2,3,5,6,7,8])
     
@@ -1736,8 +1735,19 @@ def plot_peak_areas(particle, save = False):
                                   
             ## Plot peaks
             color = colors[np.where(peaks_list == i)[0][0]]
-            ax.plot(peak_spec.x, peak_spec.y, label = peak.name + 'cm $^{-1}$', color = color, zorder = 4, linewidth = 2)
-       
+            if 'Avg' in particle.name:
+                alpha = 0.5
+            else:
+                alpha = 1
+            ax.plot(peak_spec.x, peak_spec.y, label = peak.name + 'cm $^{-1}$', color = color, zorder = 4, linewidth = 2, alpha = alpha)
+            
+            # ## ylim
+            # if peaks[j][i].name == '1435/1420':
+            #     pass
+            # # else:
+            # #     try:
+            # #         ax.set_ylim(np.nanpercentile(peak_spec.y, 0.5), 1.05)
+            # #     except: pass
             if 'Avg' in particle.name:
                 
                 fit_x = peak_spec.x
@@ -1745,7 +1755,7 @@ def plot_peak_areas(particle, save = False):
                                   particle.ms[i],
                                   particle.ts[i],
                                   particle.bs[i])
-                ax.plot(fit_x, fit_y, color = color, zorder = 4, linewidth = 3, alpha = 0.5)
+                ax.plot(fit_x, fit_y, color = color, zorder = 4, linewidth = 3, alpha = 1)
                 
        
             # # Errorbars, if avg particle
@@ -1787,7 +1797,7 @@ def plot_peak_areas(particle, save = False):
         ax.legend(loc = 'upper right')
     
         ylim = ax.get_ylim()            
-        ax.set_ylim(ylim)
+        
     
     axes[len(axes)-2].set_ylabel('I$_{1435}$ / I$_{1420}$', size = 'x-large')
     axes[len(axes)-1].set_ylabel('Background', size = 'large')
@@ -1804,7 +1814,7 @@ def plot_peak_positions(particle, save = False):
            
     timescan = particle.timescan
     
-    time = np.arange(0, len(timescan.Y) * chunk_size, chunk_size, dtype = int)   
+    time = np.arange(0, len(timescan.Y) * timescan.chunk_size, timescan.chunk_size, dtype = int)   
     
     peaks_list = np.array([0,1,2,3,5,6,7,8])
     
@@ -1933,8 +1943,8 @@ def plot_baseline_sum(particle, save = False):
 # plot_peak_areas(particle, save = False)
 # plot_peak_positions(particle, save = False)
         
-particle = avg_particles[0]
-plot_timescan(particle, save = False)
+particle = particles[0]
+# plot_timescan(particle, save = False)
 plot_peak_areas(particle, save = False)
 # plot_peak_positions(particle, save = False)
 
@@ -1942,14 +1952,14 @@ plot_peak_areas(particle, save = False)
 #%% Loop over all particles and plot
 
 print('\nPlotting...')
+
 for particle in tqdm(particles, leave = True):
     
-    plot_timescan(particle, save = False)
+    plot_timescan(particle, save = True)
     plot_timescan_background(particle, save = True)
     plot_peak_areas(particle, save = True)
     plot_peak_positions(particle, save = True)
-
-    
+ 
 
 #%% Making average particles & calculating timescan
 
@@ -1969,14 +1979,14 @@ for i, laser_power in enumerate(laser_powers):
     ## Set up avg particle
     avg_particle = Particle()
     avg_particle.laser_power = laser_power
-    avg_particle.name = 'MLAgg_Avg_' + str(np.round(timescan.laser_power*1000,1)) + 'uW'
+    avg_particle.name = 'MLAgg_Avg_' + str(np.round(laser_power*1000,1)) + 'uW'
     
     ## Set up avg timescan
     keys = list(particles[i*10].h5_address.keys())
     keys = natsort.natsorted(keys)
     for key in keys:
         if 'SERS' in key:
-            timescan = particle.h5_address[key]
+            timescan = particles[i*10].h5_address[key]
     timescan = SERS.SERS_Timescan(timescan, exposure = timescan.attrs['cycle_time'] * particles[i*10].timescan.chunk_size)
     timescan.x = spt.wl_to_wn(timescan.x, 632.8)
     timescan.x = timescan.x + coarse_shift
@@ -1987,8 +1997,8 @@ for i, laser_power in enumerate(laser_powers):
     timescan.x += shift
     avg_particle.timescan = timescan
     
-    avg_particle.timescan.Y = np.zeros(particles[0].timescan.Y.shape)
-    avg_particle.timescan.Baseline = np.zeros(particles[0].timescan.Baseline.shape)
+    avg_particle.timescan.Y = np.zeros(particles[i*10].timescan.Y.shape)
+    avg_particle.timescan.Baseline = np.zeros(particles[i*10].timescan.Baseline.shape)
     # avg_particle.timescan.BaselineSum = np.zeros(particles[0].timescan.BaselineSum.shape)
     
     ## Add y-values to avg timescan
@@ -2011,10 +2021,11 @@ for i, laser_power in enumerate(laser_powers):
                       
 #%% Get peak data for average particles
 
-
 from copy import deepcopy
 
-for avg_particle in avg_particles:
+print('\nAveraging...')
+
+for avg_particle in tqdm(avg_particles, leave = True):
     
     timescan = avg_particle.timescan
     
@@ -2094,11 +2105,11 @@ for avg_particle in avg_particles:
 #%% Decay fit of avg particles
 
 
-for particle in avg_particles:
-    
+for particle in avg_particles[3:4]:
+    print('\n' + particle.name)
     timescan = particle.timescan
     peaks = timescan.peaks
-    time = np.arange(0, len(timescan.Y) * chunk_size, chunk_size, dtype = int)   
+    time = np.arange(0, len(timescan.Y) * timescan.chunk_size, timescan.chunk_size, dtype = int)   
     
     particle.ms = np.zeros(len(timescan.peaks[0]) + 1)
     particle.ts = np.zeros(len(timescan.peaks[0]) + 1)    
@@ -2116,63 +2127,209 @@ for particle in avg_particles:
             if peaks[j][i].error:
                 y.append(nan)
             elif peaks[j][i].name == '1435/1420':
-                y.append(peaks[j][i].area)
+                y.append(peaks[j][i].area)   
             else:
                 y.append(peaks[j][i].area/timescan.peaks[0][i].area)          
         y = np.array(y)
         peak_spec = SERS.SERS_Spectrum(x = time, y = y) 
         
-        
-        popt, pcov = curve_fit(f = exp_decay, 
-                            xdata = peak_spec.x,
-                            ydata = peak_spec.y,
-                            p0 = (peak_spec.y[0], 0.2, peak_spec.y[-1]),
-                            nan_policy = 'omit')
-        
+        ## Peak area decay
+        spread = peak_spec.y[0] - peak_spec.y[-1]
+        p0 = [spread * 0.9, 0.005, peak_spec.y[-1]]  
+        # p0 = [peak_spec.y[0], 0.005, peak_spec.y[-1]]
+        try:
+            popt, pcov = curve_fit(f = exp_decay, 
+                                    xdata = peak_spec.x,
+                                    ydata = peak_spec.y,
+                                    p0 = p0,
+                                    bounds=(
+                                        (spread * 0.85, 0.0001, 0),
+                                        (spread * 1, 0.1, np.inf)),
+                                    nan_policy = 'omit')
+        except:
+            popt = p0
+            print('Peak Error: ' + str(peak.name))
+            
         particle.ms[i] = popt[0]
         particle.ts[i] = popt[1]
         particle.taus[i] = 1/popt[1]
         particle.bs[i] = popt[2]
         fit_x = peak_spec.x
-        fit_y = exp_decay(fit_x, *popt)   
+        fit_y = exp_decay(fit_x, *popt) 
+        # plt.plot(fit_x, fit_y)                   
+        # plt.plot(fit_x, peak_spec.y, alpha = 0.4)
+        # plt.text(x = 500, y = fit_y.max() * 1.1, s = str(particle.taus[i]))
+        # plt.show()
         
     ## Plot background sum
     y = []
     for j in range(0, len(timescan.Y)):
         y.append(timescan.BaselineSum[j])
     y = np.array(y)
-    background_spec = SERS.SERS_Spectrum(x = time, y = y)     
-    popt, pcov = curve_fit(f = exp_decay, 
-                        xdata = background_spec.x,
-                        ydata = background_spec.y,
-                        p0 = (background_spec.y[0], 0.1, background_spec.y[-1]),
-                        nan_policy = 'omit')
+    background_spec = SERS.SERS_Spectrum(x = time, y = y) 
+    # background_spec.y = spt.butter_lowpass_filt_filt(background_spec.y, cutoff = 3000, fs = 40000)
     
+    ## Background sum decay
+    spread = background_spec.y[0] - background_spec.y[-1]
+    p0 = [spread * 0.9, 0.005, background_spec.y[-1]]    
+    try:
+        popt, pcov = curve_fit(f = exp_decay, 
+                            xdata = background_spec.x,
+                            ydata = background_spec.y,
+                            p0 = p0,
+                            bounds=(
+                                (spread * 0.85, 0.0001, 0),
+                                (spread * 1, 0.1, np.inf)),
+                            nan_policy = 'omit')
+    except:
+        popt = p0
+        print('Background Error')
+        
     particle.ms[-1] = popt[0]
     particle.ts[-1] = popt[1]
     particle.taus[-1] = 1/popt[1]
     particle.bs[-1] = popt[2]
-    fit_x = peak_spec.x
+    fit_x = background_spec.x
     fit_y = exp_decay(fit_x, *popt)       
     plt.plot(fit_x, fit_y)                   
     plt.plot(fit_x, background_spec.y)
+    plt.text(x = 500, y = fit_y.max() * 1.1, s = str(particle.taus[-1]))
+    plt.show()
+    
+    # print(particle.ms[-1]/(background_spec.y[0] - background_spec.y[-1]))
+    # print(particle.bs[-1]/background_spec.y[-1])
+    # plot_peak_areas(particle, save = False)
             
 #%% Loop over avg particles and plot
 
-for particle in avg_particles:
+for particle in tqdm(avg_particles, leave = True):
     
-    plot_timescan(particle, save = False)
-    plot_peak_areas(particle, save = False)
-    plot_peak_positions(particle, save = False)
-    plot_timescan_background(particle, save = False)
+    plot_timescan(particle, save = True)
+    plot_peak_areas(particle, save = True)
+    plot_peak_positions(particle, save = True)
+    plot_timescan_background(particle, save = True)
     
     
 #%% Plot peak area tau v. laser power for average particles
 
 fig, axes = plt.subplots(9,1,figsize=[14,22], sharex = True)
-fig.suptitle('633 nm SERS - Peak Decay v. Laser Power', fontsize = 'x-large')
+fig.suptitle('633 nm SERS - Peak Area Decay Time v. Laser Power', fontsize = 'x-large')
 axes[len(axes)-1].set_xlabel('Laser Power ($\mu$W)', size = 'x-large')
 
    
+timescan = avg_particles[0].timescan
+
+colors = ['grey', 'purple', 'brown', 'red', 'darkgreen', 'darkblue', 'chocolate', 'deeppink', 'black']
+
+# fig, axes = plt.subplots(len(peaks_list),1,figsize=[12,30], sharex = True)
+# fig.suptitle('633 nm Powerswitch Recovery - 1 $\mu$W / 90 $\mu$W', fontsize = 'x-large')
+# axes[len(axes)-1].set_xlabel('Dark time (s)', size = 'x-large')
+peaks_list = np.array([0,1,2,3,5,6,7,8])
+for i, peak in enumerate(timescan.peaks[0]):
+    
+    if i in peaks_list:
+    
+        ## Plot each peak recovery on own axis
+        ax = axes[np.where(peaks_list == i)[0][0]] 
+        ax.set_xticks(np.linspace(0, 26, 14))
+        ax.set_ylabel('$\\tau$ I$_{SERS}$', size = 'x-large')
+        ax.set_xlim(0, 26)
+              
+        ## Get tau v. laser power
+        y = []
+        for particle in avg_particles:
+            y.append(particle.taus[i])            
+        y = np.array(y)
+        peak_spec = SERS.SERS_Spectrum(x = np.array(laser_powers) * 1000, y = y)
+        color = colors[np.where(peaks_list == i)[0][0]]
+        ax.plot(peak_spec.x, peak_spec.y, label = peak.name + 'cm $^{-1}$', color = color, zorder = 1)
+        # ax.scatter(peak_spec.x, peak_spec.y, marker = 'o', facecolors = 'none', edgecolors = color, linewidth = 3, s = 150, zorder = 2)
+
+        ax.legend(loc = 'upper right')
+    
+# ax.set_xlim(-100, 1000)
+# ax.set_xscale('symlog')
+y = []
+for particle in avg_particles:
+    if '3.0' not in particle.name:
+        y.append(particle.taus[-1])     
+    else:
+        y.append(nan)
+           
+y = np.array(y)
+peak_spec = SERS.SERS_Spectrum(x = np.array(laser_powers) * 1000, y = y)
+color = 'black'
+axes[-1].plot(peak_spec.x, peak_spec.y, label = 'Background', color = color, zorder = 1)
+axes[-1].set_ylabel('$\\tau_{Background}$', size = 'x-large')
+axes[-1].legend(loc = 'upper right')
+
+plt.tight_layout(pad = 1.5)
+    
+## Save
+save = True
+if save == True:
+    save_dir = get_directory('Compiled')
+    fig.savefig(save_dir + 'Tau Peak Area' + '.svg', format = 'svg')
+    plt.close(fig)
 
 
+#%% Plot peak area equilibrium (b) v. laser power for average particles
+
+fig, axes = plt.subplots(9,1,figsize=[14,22], sharex = True)
+fig.suptitle('633 nm SERS - Peak Area Equilibrium v. Laser Power', fontsize = 'x-large')
+axes[len(axes)-1].set_xlabel('Laser Power ($\mu$W)', size = 'x-large')
+
+   
+timescan = avg_particles[0].timescan
+
+colors = ['grey', 'purple', 'brown', 'red', 'darkgreen', 'darkblue', 'chocolate', 'deeppink', 'black']
+
+# fig, axes = plt.subplots(len(peaks_list),1,figsize=[12,30], sharex = True)
+# fig.suptitle('633 nm Powerswitch Recovery - 1 $\mu$W / 90 $\mu$W', fontsize = 'x-large')
+# axes[len(axes)-1].set_xlabel('Dark time (s)', size = 'x-large')
+peaks_list = np.array([0,1,2,3,5,6,7,8])
+for i, peak in enumerate(timescan.peaks[0]):
+    
+    if i in peaks_list:
+    
+        ## Plot each peak recovery on own axis
+        ax = axes[np.where(peaks_list == i)[0][0]] 
+        ax.set_xticks(np.linspace(0, 26, 14))
+        ax.set_ylabel('Eq. I$_{SERS}$', size = 'x-large')
+        ax.set_xlim(0, 26)
+              
+        ## Get tau v. laser power
+        y = []
+        for particle in avg_particles:
+            y.append(particle.bs[i])            
+        y = np.array(y)
+        peak_spec = SERS.SERS_Spectrum(x = np.array(laser_powers) * 1000, y = y)
+        color = colors[np.where(peaks_list == i)[0][0]]
+        ax.plot(peak_spec.x, peak_spec.y, label = peak.name + 'cm $^{-1}$', color = color, zorder = 1)
+        # ax.scatter(peak_spec.x, peak_spec.y, marker = 'o', facecolors = 'none', edgecolors = color, linewidth = 3, s = 150, zorder = 2)
+
+        ax.legend(loc = 'upper right')
+    
+# ax.set_xlim(-100, 1000)
+# ax.set_xscale('symlog')
+y = []
+for particle in avg_particles:
+    if '3.0' not in particle.name:
+        y.append(particle.bs[-1])            
+    else:
+        y.append(nan)
+y = np.array(y)
+peak_spec = SERS.SERS_Spectrum(x = np.array(laser_powers) * 1000, y = y)
+color = 'black'
+axes[-1].plot(peak_spec.x, peak_spec.y, label = 'Background', color = color, zorder = 1)
+axes[-1].set_ylabel('Eq.$_{Background}$', size = 'x-large')
+axes[-1].legend(loc = 'upper right')
+
+plt.tight_layout(pad = 1.5)
+    
+## Save
+save = True
+if save == True:
+    save_dir = get_directory('Compiled')
+    fig.savefig(save_dir + 'Equilibrium Peak Area' + '.svg', format = 'svg')
+    plt.close(fig)
