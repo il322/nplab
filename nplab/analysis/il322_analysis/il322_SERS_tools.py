@@ -132,6 +132,8 @@ class SERS_Spectrum(spt.Spectrum):
         self.x_min = self.x.min()
         self.x_max = self.x.max()
         
+        self.peaks = []
+        
     def calibrate_intensity(self, R_setup = 1, dark_counts = 0, laser_power = None, exposure = None):
         
         '''
@@ -286,6 +288,27 @@ class SERS_Timescan(spt.Timescan):
         self.y = np.average(self.Y, axis = 0)
 
     
+    def chunk(self, chunk_size):
+        
+        '''
+        Add together [chunk size] individual spectra in timescan and recreate it, good for improving S/N
+        (essentially increases integration time)
+        '''
+        
+        assert self.Y.shape[0] % chunk_size == 0
+        
+        new_timescan = np.zeros((int(self.Y.shape[0]/chunk_size), self.Y.shape[1]))
+        
+        for i, scan in enumerate(new_timescan):
+            this_scan = np.zeros(new_timescan.shape[1])
+            for j in range(0,chunk_size):
+                this_scan += self.Y[(i*chunk_size)+j]
+            new_timescan[i] = this_scan
+            
+        self.Y = new_timescan
+        self.exposure = self.exposure * chunk_size
+
+
     def extract_nanocavity(self, timescan_y = None, plot = False):
         
         '''
@@ -465,7 +488,7 @@ class SERS_Timescan(spt.Timescan):
         Y_plot = Y_plot[t_min_idx : t_max_idx]
         t_plot = t_plot[t_min_idx : t_max_idx]
         
-        print(t_plot)
+        # print(t_plot)
         
         # Plot E-Chem
         
@@ -579,6 +602,7 @@ class SERS_Timescan(spt.Timescan):
             ax1.set_ylim(y_ticks.min(), y_ticks.max())
             
         plt.tight_layout()
+        
 
 
 #%% SERS_Powerseries class

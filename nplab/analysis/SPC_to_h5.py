@@ -14,7 +14,7 @@ from builtins import range
 from past.utils import old_div
 from builtins import object
 import os
-import spc
+# import spc
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
