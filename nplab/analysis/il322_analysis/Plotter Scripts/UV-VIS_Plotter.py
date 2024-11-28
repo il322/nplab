@@ -27,8 +27,8 @@ plt.rc('lines', linewidth=3)
 
 #%%
 
-my_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\car72 M-TAPP UV-Vis\2021-04-05 All MTPP UV-Vis PL.h5")
-my_csv = r"C:\Users\il322\Desktop\Offline Data\car72 M-TAPP UV-Vis\Co-TAPP Abs_processed.csv"
+my_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\2021-04-05 All MTPP UV-Vis PL.h5")
+my_csv = r"C:\Users\il322\Desktop\Offline Data\Co-TAPP Abs_processed.csv"
 
 Co = np.genfromtxt(my_csv, delimiter=',')
 Co = Co.transpose()
@@ -43,27 +43,28 @@ Ni = spt.Spectrum(x = Ni.attrs['wavelengths'], y = Ni.attrs['yRaw'])
 Zn = spt.Spectrum(x = Zn.attrs['wavelengths'], y = Zn.attrs['yRaw'])
 
 #%%
+color_dict = {'Co-TAPP-SMe' : 'blue', 'Ni-TAPP-SMe' : 'red', 'Zn-TAPP-SMe' : 'green', 'H2-TAPP-SMe' : 'purple', 'BPDT' : 'brown', 'TPDT' : 'pink', 'Au mirror' : 'darkgoldenrod', 'FTO' : 'grey'}
 plot_start = 300
 fig, ax = plt.subplots(1,1, figsize = (8,6))
 my_cmap = plt.get_cmap('Set1')
-ax.plot(H2.x[300:], H2.y[300:], label = 'H2-TAPP', color = my_cmap(3), zorder = 4)
-ax.plot(Co.x[:400], Co.y[:400], label = 'Co-TAPP', color = my_cmap(1), zorder = 2)
-ax.plot(Ni.x[300:], Ni.y[300:], label = 'Ni-TAPP', color = my_cmap(6), zorder = 3)
-ax.plot(Zn.x[300:], Zn.y[300:], label = 'Zn-TAPP', color = my_cmap(2), zorder = 1)
+ax.plot(H2.x[300:], H2.y[300:], label = 'H2-TAPP', color = 'purple', zorder = 4)
+ax.plot(Co.x[:400], Co.y[:400], label = 'Co-TAPP', color = 'blue', zorder = 2)
+ax.plot(Ni.x[300:], Ni.y[300:], label = 'Ni-TAPP', color = 'red', zorder = 3)
+ax.plot(Zn.x[300:], Zn.y[300:], label = 'Zn-TAPP', color = 'green', zorder = 1)
 
-ax.plot(H2.x[280:300], H2.y[280:300], linestyle = 'dashed', color = my_cmap(3), zorder = 1)
-ax.plot(Co.x[:420], Co.y[:420], linestyle = 'dashed', color = my_cmap(1), zorder = 1)
-ax.plot(Ni.x[280:300], Ni.y[280:300], linestyle = 'dashed', color = my_cmap(6), zorder = 1)
-ax.plot(Zn.x[280:300], Zn.y[280:300], linestyle = 'dashed', color = my_cmap(2), zorder = 1)
+ax.plot(H2.x[280:300], H2.y[280:300], linestyle = 'dashed', color = 'purple', zorder = 1)
+ax.plot(Co.x[:420], Co.y[:420], linestyle = 'dashed', color = 'blue', zorder = 1)
+ax.plot(Ni.x[280:300], Ni.y[280:300], linestyle = 'dashed', color = 'red', zorder = 1)
+ax.plot(Zn.x[280:300], Zn.y[280:300], linestyle = 'dashed', color = 'green', zorder = 1)
 
 #ax.text(s = '633nm Raman\n   Excitation', x = 645, y = 0.12, fontsize = 'small', color = 'red')
-ax.text(s = '785nm Raman\n   Excitation', x = 745, y = 0.01, fontsize = 'small', color = 'darkorange')
+# ax.text(s = '785nm Raman\n   Excitation', x = 745, y = 0.01, fontsize = 'small', color = 'darkorange')
 
-ax.vlines(x = 632.8, ymin = 0, ymax = 0.25, color = 'red', linewidth = 10, zorder = 0)
-ax.vlines(x = 785, ymin = -1, ymax = 0.25, color = 'darkorange', linewidth = 10, zorder = 0)
+# ax.vlines(x = 632.8, ymin = 0, ymax = 0.25, color = 'red', linewidth = 10, zorder = 0)
+# ax.vlines(x = 785, ymin = -1, ymax = 0.25, color = 'darkorange', linewidth = 10, zorder = 0)
 
-ax.set_xlim(720,850)
-ax.set_ylim(-0.004,0.015)
+ax.set_xlim(450,850)
+ax.set_ylim(-0.004,0.25)
 ax.set_xlabel('Wavelength (nm)', fontsize = 'large')
 ax.set_ylabel('Absorption', fontsize = 'large')
 ax.legend()

@@ -17,6 +17,7 @@ To do:
     Separately, make class for particle to store all types of data
 """
 
+from copy import copy
 import h5py
 import os
 import math
@@ -32,103 +33,208 @@ from importlib import reload
 from nplab.analysis.general_spec_tools import spectrum_tools as spt
 from nplab.analysis.general_spec_tools import npom_df_pl_tools as df
 from nplab.analysis.general_spec_tools import all_rc_params as arp
-df_rc_params = arp.master_param_dict['DF Spectrum']
-plt.rc('font', size=18, family='sans-serif')
-plt.rc('lines', linewidth=3)
 
-class Z_Scan(df.NPoM_DF_Z_Scan):
+
+#%%
+
+class Z_Scan(spt.Timescan):
     
     '''
     Object for handling NPoM DF z-scan datasets
-    Inherits from df.NPoM_DF_Z_Scan class
+    Inherits from 
     Contains functions for:
         Checking centering/focus of particles and/or collection path alignment
         Condensing z-stack into 1D spectrum, corrected for chromatic aberration
+        Plotting z-scan
     '''
     
-    def __init__(self, *args, dz = None, z_min = -3, z_max = 3, z_trim = 2, 
+    def __init__(self, *args, dz = None, z_min = -3, z_max = 3, z_trim = [2,-2], 
                  particle_name = None, avg_scan = False, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.particle_name = particle_name
+        
+        ## Get dz
+        if dz is None:
+            self.z_min = z_min
+            self.z_max = z_max
+            dz = np.linspace(self.z_min, self.z_max, len(self.t_raw))     
+        self.dz = dz
 
-        if 'dz' not in self.__dict__.keys():  
-            if dz is None:
-                self.z_min = z_min
-                self.z_max = z_max
-                dz = np.linspace(self.z_min, self.z_max, len(self.t_raw))
-
-            self.dz = dz
-
-        self.dz = self.dz[z_trim:]
-        self.t_raw = self.t_raw[z_trim:]
-
+        ## Background and reference
+        self.Y_raw = copy(self.Y)
+        self.Y = self.Y - self.background
+        self.Y = self.Y / (self.reference - self.background)
+        self.Y = np.nan_to_num(self.Y, nan = 0, posinf = 0, neginf = 0) # remove nan's and inf's
+        
+        ## Trim
+        self.dz = self.dz[z_trim[0]:z_trim[1]]
+        self.t = self.t_raw[z_trim[0]:z_trim[1]]
         self.z_min = self.dz.min()
         self.z_max = self.dz.max()
-
-        self.Y = self.Y[z_trim:]  
-
-        self.check_centering(**kwargs)
-
-        self.avg_scan = avg_scan
+        self.Y = self.Y[z_trim[0]:z_trim[1]]  
         
+        self.avg_scan = np.mean(self.Y, axis = 0)
     
-    def plot_z_scan(self, ax = None, y_label = None, rc_params = None, x_lim = None, 
-                    cmap = 'inferno', title = None, **kwargs):
+    
+    def plot_z_scan(self, ax = None, rc_params = None, x_lim = None, 
+                    cmap = 'inferno', title = 'Z-Scan', plot_centroid = False, colorbar = False, **kwargs):
+        
         '''
-        !!! needs docstring
+        Plot z-scan on colormap
         '''
-
-        old_rc_params = plt.rcParams.copy()#saves initial rcParams before overwriting them
 
         if ax is None:
-            if self.rc_params is not None:
-                plt.rcParams.update(self.rc_params)#use rc params specified with object
-            if rc_params is not None:
-                plt.rcParams.update(rc_params)#unless overridden when calling the function
-
-            fig, ax = plt.subplots()#if no axes provided, create some
-            external_ax = False
-
-        else:
-            external_ax = True
+            fig, ax = plt.subplots(figsize = [14,10]) # if no axes provided, create some
 
         x = self.x
         z = self.dz
-
-        y_label = 'Focal Height ($\mathrm{\mu}$m)'
-
-        if y_label == False:
-            y_label = ''        
-
         Y = np.vstack(self.Y)
 
-        self.determine_v_lims(**kwargs)
-
-        ax.pcolormesh(x, z, Y, cmap = cmap, shading = 'auto', 
-                      norm = mpl.colors.LogNorm(vmin = self.v_min, vmax = self.v_max), rasterized = True)
-
+        pcm = ax.pcolormesh(x, z, Y, cmap = cmap, shading = 'auto', 
+                      norm = mpl.colors.Normalize(vmin = 0, vmax = np.percentile(self.Y, 99.5)), rasterized = True, **kwargs)
+        
+        if colorbar == True:
+            clb = plt.colorbar(pcm, ax = ax)
+            clb.set_label(label = 'DF Intensity', rotation = 270, labelpad=30)            
+            
+        if plot_centroid == True:
+            ax.plot(self.x, self.z_profile, color = 'mediumaquamarine')
+            
         if x_lim is None:
-            x_lim = self.x_lim
-
-        if x_lim is not None and x_lim is not False:
+            x_lim = [self.x.min() - 1, self.x.max() + 1]
+        else:
             ax.set_xlim(x_lim)
             
         ax.set_ylim(z.min(), z.max())
-        ax.set_ylabel(y_label)
+        ax.set_ylabel('Focal Height ($\mathrm{\mu}$m)')
+        ax.set_xlabel('Wavelength (nm)')
+        ax.set_title(title)
 
-        if title is not None:
+
+    def check_centering(self, dz_interp_steps = 50, brightness_threshold = 4, 
+                        plot = False, ax = None, print_progress = True, title = None, **kwargs):
+        
+        '''
+        Checks whether the particle was correctly focused/centred during measurement
+            (important for accuracy of absolute spectral intensities)
+
+        Inspects the average z-profile of spectral intensity
+        z-profile has one obvious intensity maximum if the particle is correctly focused/centred, and the collection path aligned
+        If the z-profile deviates from this, the particle is flagged as unfocused/misaligned
+        '''
+        
+        ## Average intensity at each z-position
+        z_profile = np.average(self.Y, axis = 1)
+        z_profile = z_profile - z_profile.min()
+
+        ## Split profile into thirds
+        dz_cont = np.linspace(self.z_min, self.z_max, dz_interp_steps)
+        buffer = int(round(dz_interp_steps/4))
+        z_profile_cont = np.interp(dz_cont, self.dz, z_profile)
+
+        ## If centre brightness is brighter than background brightness of z-stack, particle is aligned
+        i_edge = np.trapz(z_profile_cont[:buffer]) + np.trapz(z_profile_cont[-buffer:])
+        i_mid = np.trapz(z_profile_cont[buffer:-buffer])
+        relative_brightness = i_mid/i_edge
+        self.aligned = relative_brightness > brightness_threshold # bool
+
+        ## Plot
+        if plot == True:  
+            
+            if ax is None:
+                fig, ax = plt.subplots(figsize = [14, 10])# if no axes provided, create some
+            
+            ax.plot(dz_cont, z_profile_cont/z_profile_cont.max(), 'k', lw = 4)
+            ax.vlines(dz_cont[buffer], 0 , 1)
+            ax.vlines(dz_cont[-buffer], 0 , 1)
+            ax.set_xlabel('Focal height (um)')
+            ax.set_ylabel('Average intensity')
+            status = 'Aligned' if self.aligned == True else 'Not Aligned'
+            status = f'{status}: {relative_brightness:.2f}'
             ax.set_title(title)
+            ax.text(s = status, x = ax.get_xlim()[0] + (ax.get_xlim()[1] * 0.05), y = 0.9, fontsize = 25)
 
-        if external_ax == False:
+    def condense_z_scan(self, threshold = 0.01, plot = False, cosmic_ray_removal = False, **kwargs):
+        
+        '''
+        Condenses z-scan into 1D DF spectrum
+        Z scan is thresholded and the centroid is taken for each wavelength
+        '''
+
+        Y_T = self.Y.T
+
+        # Get indicies of brightest z position for each wavelength
+        max_indices = np.array([wl_scan.argmax() for wl_scan in Y_T]) # finds index of brightest z position for each wavelength
+        max_indices_smooth = spt.butter_lowpass_filt_filt(max_indices, cutoff = 900, fs = 80000) # smooth
+
+        Y_thresh = spt.remove_nans(self.Y, noisy_data = True).astype(np.float64)
+        Y_thresh = (Y_thresh - Y_thresh.min(axis = 0))/(Y_thresh.max(axis = 0) - Y_thresh.min(axis = 0))
+        Y_thresh -= threshold
+        Y_thresh *= (Y_thresh > 0) #Normalise and Threshold array
+        ones = np.ones([Y_thresh.shape[1]])
+        z_positions = np.array([ones*n for n in np.arange(Y_thresh.shape[0])]).astype(np.float64)
+
+        centroid_indices = np.sum((Y_thresh*z_positions), axis = 0)/np.sum(Y_thresh, axis = 0) #Find Z centroid position for each wavelength
+        centroid_indices = spt.remove_nans(centroid_indices)
+
+        assert np.count_nonzero(np.isnan(centroid_indices)) == 0, 'All centroids are NaNs; try changing the threshold when calling condense_z_scan()'
+
+        if plot == True:                           
+            fig = plt.figure(figsize = (7, 12))
+            ax_z = plt.subplot2grid((14, 1), (0, 0), rowspan = 8)
+            plt.setp(ax_z.get_xticklabels(), visible = False)
+            ax_df = plt.subplot2grid((14, 1), (8, 0), rowspan = 6, sharex = ax_z)
+            self.plot_z_scan(ax_z, title = None)
+    
+        df_spectrum = []
+        z_profile = []
+
+        for n, centroid_index in enumerate(centroid_indices):
+            #use centroid_index in z (as float) to obtain interpolated spectral intensity
+
+            if 0 < centroid_index < len(self.dz) - 1:#if calculated centroid is within z-range
+                lower = int(centroid_index)
+                upper = lower + 1
+                frac = centroid_index % 1
+                yi = spt.linear_interp(Y_T[n][lower], Y_T[n][upper], frac)
+                zi = spt.linear_interp(self.dz[lower], self.dz[upper], frac)
+                
+            else:
+                #print('centroid shifted')
+                if centroid_index <= 0:
+                    yi = Y_T[n][0]     
+                    zi = self.dz[0]
+                elif centroid_index >= len(self.dz) - 1:
+                    yi = Y_T[n][-1]     
+                    zi = self.dz[-1]
+
+            df_spectrum.append(yi)
+            z_profile.append(zi)
+
+        if cosmic_ray_removal == True:
+            df_spectrum = spt.remove_cosmic_rays(df_spectrum, **kwargs)
+
+        df_spectrum = spt.remove_nans(df_spectrum)
+
+        self.df_spectrum = np.array(df_spectrum)
+        self.z_profile = np.array(z_profile)
+
+        if plot == True:
+            ax_df.plot(self.x, df_spectrum, alpha = 0.6, label = 'Centroid')
+            ax_z.plot(self.x, z_profile)
+
+            ax_df.plot(self.x, np.average(self.Y, axis = 0), label = 'Avg')
+            ax_df.set_xlim(400, 900)
+            ax_df.legend(loc = 0, fontsize = 14, ncol = 2)
+            ax_df.set_xlabel('Wavelength (nm)')
+
+            plt.subplots_adjust(hspace = 0)
             plt.show()
-            plt.rcParams.update(old_rc_params)#put rcParams back to normal when done
 
-        
-   
-        
-#%%     
 
+#%%
+       
 class DF_Spectrum(df.NPoM_DF_Spectrum):
     
     '''
@@ -137,9 +243,9 @@ class DF_Spectrum(df.NPoM_DF_Spectrum):
     args can be y data, x and y data, h5 dataset or h5 dataset and its name
     '''
     
-    def __init__(self, *args, rc_params = df_rc_params, particle_name = None, np_size = 80, lower_cutoff = None,
+    def __init__(self, *args, particle_name = None, np_size = 80, lower_cutoff = None,
                  pl = False, doubles_threshold = 2, **kwargs):
-        super().__init__(*args, rc_params = rc_params, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self.particle_name = particle_name
 
@@ -155,10 +261,29 @@ class DF_Spectrum(df.NPoM_DF_Spectrum):
         self.pl = pl
 
         if self.y_smooth is None:
-            self.y_smooth = spt.butter_lowpass_filt_filt(self.y, **kwargs)
+            self.y_smooth = spt.butter_lowpass_filt_filt(y = self.y)
 
         self.find_maxima(**kwargs)
         
+    
+    def plot_df(self, ax = None, smooth = True, x_lim = None, y_lim = None, title = None, **kwargs):
+        
+        '''
+        Plots DF spectrum using self.x and self.y
+        '''
+        
+        if ax is None:
+            fig, ax = plt.subplots(figsize = [14,10]) # if no axes provided, create some
+
+        ax.plot(self.x, self.y, color = 'tab:blue')
+        
+        if smooth == True:
+            ax.plot(self.x, self.y_smooth, color = 'tab:orange')
+        
+        ax.set_ylabel('Darkfield Intensity')
+        ax.set_xlabel('Wavelength (nm)')
+        ax.set_title(title)
+ 
         
     def find_critical_wln(self, xlim = None):
         
@@ -166,7 +291,7 @@ class DF_Spectrum(df.NPoM_DF_Spectrum):
         Find critical wavelength from list of maxima (takes global maximum)
         '''
         if xlim is None:
-            xlim = (self.x.min, self.x.max)
+            xlim = (self.x.min(), self.x.max())
         crit_wln = 0
         global_max = 0
         for maximum in self.maxima:
@@ -177,11 +302,11 @@ class DF_Spectrum(df.NPoM_DF_Spectrum):
                     self.crit_maximum = maximum
                 
         self.crit_wln = crit_wln
-                
+            
 
 #%%
 
-def df_screening(z_scan, df_spectrum, image = None, tinder = False, plot = False, title = None, save_file = None, **kwargs):
+def df_screening(z_scan, df_spectrum, image = None, tinder = False, plot = False, title = None, save_file = None, brightness_threshold = 4, **kwargs):
     
     '''
     Function to screen NPoMs based on DF data
@@ -203,63 +328,72 @@ def df_screening(z_scan, df_spectrum, image = None, tinder = False, plot = False
     # Plotting
     
     if plot == True:
-        plt.rc('font', size=18, family='sans-serif')
-        plt.rc('lines', linewidth=3)
-        plt.figure(figsize=[7,16])    
-        ax1=plt.subplot(3,1,1)
-        ax2=plt.subplot(3,1,2, sharex=ax1)
-        ax3 = plt.subplot(3,1,3)
-        #ax1.get_xaxis().set_visible(False)
+        fig, axes = plt.subplots(4, 1, figsize=[8,24])
+        plt.rc('font', size=18)
+        ax1 = axes[0]
+        ax2 = axes[1]
+        ax3 = axes[2]
+        ax4 = axes[3]
         ax1.set_title('Z-Scan')
-        ax2.set_title('Stacked Dark-field Spectrum')
-        ax3.set_title('Image')
-        if title is not None:
-            plt.suptitle(title)
-        plt.tight_layout(pad = 1.2)
+        ax4.set_title('Image')
+        fig.suptitle(title)
+        plt.tight_layout(pad = 2)
     
         ## Plot z-scan
-        z_scan.plot_z_scan(ax=ax1, x_lim = (z_scan.x_lim))
+        z_scan.plot_z_scan(ax = ax1, plot_centroid = True, **kwargs)
     
         ## Plot df spectrum (raw & smoothed) w/ maxima & crit wln
-        df_spectrum.plot_df(ax=ax2, x_lim = z_scan.x_lim)
+        df_spectrum.plot_df(ax=ax2, title = 'Condensed DF Spectrum')
         if len(df_spectrum.maxima) > 0:
             for maximum in df_spectrum.maxima:
-                ax2.scatter(df_spectrum.x[maximum], df_spectrum.y_smooth[maximum], marker='x', s=250, color='black', zorder = 10)
-            ax2.scatter(df_spectrum.crit_wln, np.max(df_spectrum.y_smooth[df_spectrum.maxima]), marker = '*', s = 400, color = 'purple', zorder = 20)
-        ax2.set_yticks(np.round(np.linspace(0, df_spectrum.y.max(), 2), 3))       
+                ax2.scatter(df_spectrum.x[maximum], df_spectrum.y_smooth[maximum], marker='x', s=250, color = 'black', zorder = 10)
+            ax2.scatter(df_spectrum.crit_wln, np.max(df_spectrum.y_smooth[df_spectrum.maxima]), marker = '*', s = 800, color = 'yellow', edgecolor = 'black', linewidth = 2, zorder = 20)
+        ax2.set_yticks(np.round(np.linspace(0, df_spectrum.y.max(), 5), 3))       
+
+        ## Plot z-profile
+        z_scan.check_centering(plot = True, ax = ax3, title = 'Average Z-Profile', brightness_threshold = brightness_threshold)
 
         ## Plot CWL image
         if image is not None:
-            ax3.imshow(image, zorder = 500)
-        
-    
+            ax4.imshow(image, zorder = 0)
+            xlim = ax4.get_xlim()
+            ylim = ax4.get_ylim()
+            ax4.vlines(np.mean(xlim), ylim[0], ylim[1], color = 'magenta', alpha = 0.3)
+            ax4.hlines(np.mean(ylim), xlim[0], xlim[1], color = 'magenta', alpha = 0.3)
+
+        ## Labelling and such
+        ax1.set_xlabel('')
+        ax2.set_xlim(ax1.get_xlim())
+
     # Run NPoM tests & print reasons why NPoM rejected
         
-    ## Test if z-scan centred correctly
+    ## Check if z-scan centred correctly (z_scan.check_centering())
+    if hasattr(z_scan, 'aligned') == False:
+        z_scan.check_centering(brightness_threshold = brightness_threshold)
     if z_scan.aligned == False:
         df_spectrum.is_npom = False
         df_spectrum.not_npom_because = 'Centering failed'
         if plot == True: 
-            ax2.text(s='Centering Failed', x = z_scan.x_lim[0] + 50, y=(df_spectrum.y.max() + df_spectrum.y.min())/2, fontsize = 40)
+            ax3.text(s='Centering Failed', x = ax3.get_xlim()[0] + (ax3.get_xlim()[1] * 0.05), y = 0.75, fontsize = 25)
     
     ## Test df spectrum via test_if_npom() 
     else:
-        try:
-            if df_spectrum.is_npom == False:
-                if plot == True: ax2.text(s='NPoM Test failed: ' + df_spectrum.not_npom_because, x = z_scan.x_lim[0] + 50, y=(df_spectrum.y.max() + df_spectrum.y.min())/2, fontsize = 20, zorder=20)
-        except:
+        if hasattr(df_spectrum, 'is_npom') == False:
             df_spectrum.test_if_npom()
-            if df_spectrum.is_npom == False:
-                if plot == True: ax2.text(s='NPoM Test failed: ' + df_spectrum.not_npom_because, x = z_scan.x_lim[0] + 50, y=(df_spectrum.y.max() + df_spectrum.y.min())/2, fontsize = 20, zorder=20)
+        if df_spectrum.is_npom == False:
+            if plot == True: ax2.text(s='NPoM Test failed: ' + '\n' + df_spectrum.not_npom_because, x = ax2.get_xlim()[0] + 10, y = ax2.get_ylim()[1] * 0.75, fontsize = 25, zorder=20)
+
+    
+    # Plot and save
     
     if plot == True and save_file == None:
         plt.show()
-    
     elif plot == True and save_file is not None:
         plt.savefig(save_file, format = 'svg')
     
     
-    ## Manual rejection
+    # Manual rejection
+    
     if tinder == True:        
         ar = input('a/d = accept/decline: ').strip().lower()
         if ar == 'a':
@@ -456,4 +590,40 @@ def plot_df_histogram(crit_wln_list,
 #                   df_avg_threshold = 2,
 #                   title = 'Co-TAPP-SMe')
 
+#%%
 
+# my_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\2024-07-26_TiO_NPoM_DF_633_Powerseries_Track.h5")
+
+# particle = my_h5['ParticleScannerScan_1']['Particle_0']
+# keys = list(particle.keys())
+# keys = natsort.natsorted(keys)
+
+# z_scans = []
+# images = []
+
+# for key in keys:
+#     if 'z_scan' in key:
+#         z_scans.append(particle[key])
+#     if 'image' in key:
+#         images.append(particle[key])
+
+# for i, scan in enumerate(z_scans):
+    
+#     name = str(copy(scan.name))
+    
+#     scan = Z_Scan(scan, z_min = scan.attrs['neg'], z_max = scan.attrs['pos'],z_trim = [8, -8])
+#     scan.truncate(400, 900)   
+#     scan.condense_z_scan()
+#     spectrum = scan.df_spectrum
+#     scan.df_spectrum = DF_Spectrum(scan.x, spectrum)
+#     scan.df_spectrum.find_critical_wln()
+#     image = images[i]
+#     scan.df_spectrum = df_screening(scan, scan.df_spectrum, image, plot = True, brightness_threshold = 3)
+    
+#     z_scans[i] = scan
+#     images[i] = image
+    
+# particle.z_scans = z_scans
+# particle.images = images
+# particle.crit_wlns = [z_scans[0].df_spectrum.crit_wln, z_scans[1].df_spectrum.crit_wln]
+# particle.is_npom = [particle.z_scans[0].df_spectrum.is_npom, particle.z_scans[0].df_spectrum.is_npom]  

@@ -73,7 +73,7 @@ class Peak():
 #%% h5 files
 
 ## Load raw data h5
-my_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\2024-08-09_Co-TAPP-SMe_20nm_MLAgg_Photocurrent.h5")
+my_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\2024-08-09_Co-TAPP-SMe_20nm_MLAgg_Photocurremt.h5")
 
 ## Calibration h5 File
 cal_h5 = h5py.File(r"C:\Users\il322\Desktop\Offline Data\calibration.h5")
@@ -306,7 +306,7 @@ for j, voltage in enumerate(voltages):
 
     ax.set_title(str(voltage) + ' V', fontsize = 'x-large')
     offset = 0.0
-    
+    print(voltage)
     if j < len(axes)-1:
         ax.xaxis.set_ticklabels([])
     
@@ -319,8 +319,14 @@ for j, voltage in enumerate(voltages):
         
         ## Plot
         color = cmap(norm(spectrum.wavelength))  
+        current = np.abs(np.mean(spectrum.pec)) * 10**-3
+        ipce = (current * 1240 * 100)/(spectrum.wavelength * power_dict[spectrum.wavelength])
+        # print(ipce)
+        # print(np.mean(spectrum.pec)/power_dict[spectrum.wavelength])
         ax.scatter(spectrum.wavelength, np.abs(np.mean(spectrum.pec)/power_dict[spectrum.wavelength]), color = color, s = 150)
         # ax.errorbar(spectrum.wavelength,  np.abs(np.mean(spectrum.pec)/power_dict[spectrum.wavelength]), yerr = np.abs(np.std(spectrum.pec)/(np.sqrt(len(spectrum.pec)*power_dict[spectrum.wavelength]))), marker = 'none', mfc = color, mec = color, linewidth = 0, markersize = 10, capsize = 7, elinewidth = 3, capthick = 2, ecolor = color, zorder = 1)
+        # for pec in spectrum.pec:
+            # ax.scatter(spectrum.wavelength, pec, color = 'black', s = 150)
 
         
     ylim = ax.get_ylim()
