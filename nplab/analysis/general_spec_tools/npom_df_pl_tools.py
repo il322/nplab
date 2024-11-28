@@ -65,7 +65,7 @@ class NPoM_DF_Z_Scan(spt.Timescan):
         If the z-profile deviates from this, the particle is flagged as unfocused/misaligned
         '''
         
-        z_profile = np.average(self.Y, axis = 1)
+        z_profile = np.average(self.Y, axis = 0)
         z_profile = z_profile - z_profile.min()
 
         dz_cont = np.linspace(self.z_min, self.z_max, dz_interp_steps)
@@ -250,7 +250,7 @@ class NPoM_DF_Spectrum(spt.Spectrum):
         self.pl = pl
 
         if self.y_smooth is None:
-            self.y_smooth = spt.butter_lowpass_filt_filt(self.y, **kwargs)
+            self.y_smooth = spt.butter_lowpass_filt_filt(y = self.y, **kwargs)
 
         self.find_maxima(**kwargs)
 
