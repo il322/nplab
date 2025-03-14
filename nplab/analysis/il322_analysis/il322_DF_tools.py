@@ -244,7 +244,7 @@ class DF_Spectrum(df.NPoM_DF_Spectrum):
     '''
     
     def __init__(self, *args, particle_name = None, np_size = 80, lower_cutoff = None,
-                 pl = False, doubles_threshold = 2, **kwargs):
+                 pl = False, doubles_threshold = 2, smooth_first = False, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.particle_name = particle_name
@@ -260,7 +260,7 @@ class DF_Spectrum(df.NPoM_DF_Spectrum):
 
         self.pl = pl
 
-        if self.y_smooth is None:
+        if self.y_smooth is None and self.smooth_first == True:
             self.y_smooth = spt.butter_lowpass_filt_filt(y = self.y)
 
         self.find_maxima(**kwargs)
@@ -302,6 +302,28 @@ class DF_Spectrum(df.NPoM_DF_Spectrum):
                     self.crit_maximum = maximum
                 
         self.crit_wln = crit_wln
+        
+        
+    def normalise(self, norm_range = (0, 1), norm_y = None):
+        
+        '''
+        Function for normalizing spectra in timescan
+        
+        Parameters:
+            norm_range: (tuple = (0, 1)) Normalization range
+            norm_y: (None) Which y to normalize (self.y_smooth, self.y_baselined, etc). Default is just self.y
+        '''
+        
+        if norm_y is None:
+            self.y_norm = self.y.copy()
+        else:
+            self.y_norm = norm_y.copy()
+        self.y_norm = self.y_norm.astype('float64')
+        
+        ## Normalize
+        self.y_norm = self.y_norm - self.y_norm.min()
+        self.y_norm = (self.y_norm / self.y_norm.max()) * (norm_range[1] - norm_range[0])
+        self.y_norm = self.y_norm + norm_range[0]
             
 
 #%%

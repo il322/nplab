@@ -23,6 +23,7 @@ from nplab.analysis.general_spec_tools import spectrum_tools as spt
 
 plt.rc('font', size=18, family='sans-serif')
 plt.rc('lines', linewidth=3)
+mpl.rcParams.update({'font.size': 36})
 
 
 #%%

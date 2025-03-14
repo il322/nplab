@@ -52,7 +52,7 @@ BBI_20nm = spt.Spectrum(x = data[:,10], y = data[:,11])
 
 
 my_h5 = h5py.File(r"S:\il322\PhD Data\Other Samples\2023-12_Stratchlyde_AuNPs\2024-02-08_Strathclyde_AuNPs_UVVis.h5")
-save_dir = r"C:\Users\il322\Desktop\Offline Data\2024-02-08 AuNP Analysis\_"
+save_dir = r"S:\il322\PhD Data\Other Samples\2023-12_Stratchlyde_AuNPs\\"
 
 #%%
 
@@ -70,17 +70,20 @@ dark = spt.Spectrum(dark)
 
 #%% Plot U-Vis spectra of all relevant samples
 
+name_dict = {'Strath_1' : 20, 'Strath_2' : 35, 'Strath_3' : 57, 'Strath_4' : 70, 'Strath_5' : 80, 'Strath_6' : 95}
+
 mpl.rcParams['lines.linewidth'] = 0.2
-plt.rc('font', size=18, family='sans-serif')
-plt.rc('lines', linewidth=3)
+plt.rc('font', size=30, family='sans-serif')
+
+plt.rc('lines', linewidth=5)
 fig, (ax) = plt.subplots(1, 1, figsize=[12,10])
 fig.suptitle('UV-Vis Strathclyde AuNPs', )
 ax.set_xlabel('Wavelength (nm)')
 ax.set_ylabel('Absorbance (a.u.)')
 offset = 0.0
 my_cmap = plt.get_cmap('jet')
-ax.plot(1, 1, color = 'black', linestyle = '-', label = 'Centrifuged')
-ax.plot(1, 1, color = 'black', linestyle = '--', label = 'Not Centrifuged')
+# ax.plot(1, 1, color = 'black', linestyle = '-', label = 'Centrifuged')
+# ax.plot(1, 1, color = 'black', linestyle = '--', label = 'Not Centrifuged')
 name_list = []
 
 
@@ -91,6 +94,7 @@ for i, spectrum in enumerate(list(group.keys())):
         linetype = '-'
     elif'_0_' in spectrum:
         linetype = '--'
+        continue
     else:
         continue
 
@@ -116,61 +120,62 @@ for i, spectrum in enumerate(list(group.keys())):
     abso = -np.log10(spectrum.y)    
 
     if i % 2 != 0:    
-        ax.plot(spectrum.x, abso + (int(np.floor(i/2))*offset), label = name, linestyle = linetype, color = color)
+        ax.plot(spectrum.x, abso + (int(np.floor(i/2))*offset), label = str(name_dict[name]) + ' nm' , linestyle = linetype, color = color)
     else:
         ax.plot(spectrum.x, abso + (int(np.floor(i/2))*offset), linestyle = linetype, color = color)
 
 
 
 # Plot BBI spectra
-ax.plot(BBI_20nm.x, BBI_20nm.y + (int(np.floor(i/2))*offset), label = 'BBI_20nm', linestyle = '--', color = (0,0,0.5,0.5))
-my_cmap = plt.get_cmap('jet')
-for i, spectrum in enumerate(list(group.keys())):
+# ax.plot(BBI_20nm.x, BBI_20nm.y + (int(np.floor(i/2))*offset), label = 'BBI_20nm', linestyle = '--', color = (0,0,0.5,0.5))
+# my_cmap = plt.get_cmap('jet')
+# for i, spectrum in enumerate(list(group.keys())):
      
-    if '_1_' in spectrum:
-        linetype = '-'
-    elif'_0_' in spectrum:
-        linetype = '--'
-    else:
-        continue
+#     if '_1_' in spectrum:
+#         linetype = '-'
+#     elif'_0_' in spectrum:
+#         linetype = '--'
+#         continue
+#     else:
+#         continue
 
-    if 'BBI' not in spectrum:
-        continue
+#     if 'BBI' not in spectrum:
+#         continue
 
-    name = spectrum[0:8]
+#     name = spectrum[0:8]
                 
-    if name not in name_list:
-        name_list.append(name)
+#     if name not in name_list:
+#         name_list.append(name)
     
-    color = my_cmap(int((np.floor(i/2)-5) * 60))
-    color_x = []
-    for j in range(0,4):
-        color_x.append(color[j])
-    color_x[3] = 0.5
+#     color = my_cmap(int((np.floor(i/2)-5) * 60))
+#     color_x = []
+#     for j in range(0,4):
+#         color_x.append(color[j])
+#     color_x[3] = 0.5
     
-    color = color_x
+#     color = color_x
     
-    spectrum = group[spectrum]
-    spectrum = spt.Spectrum(spectrum)
-    spectrum.y = spectrum.y-dark.y
-    spectrum.y = spectrum.y/(blank.y-dark.y)   
-    spectrum.truncate(420,900)
-    # spectrum.y = (spectrum.y * -1) + 1
-    abso = -np.log10(spectrum.y)  
+#     spectrum = group[spectrum]
+#     spectrum = spt.Spectrum(spectrum)
+#     spectrum.y = spectrum.y-dark.y
+#     spectrum.y = spectrum.y/(blank.y-dark.y)   
+#     spectrum.truncate(420,900)
+#     # spectrum.y = (spectrum.y * -1) + 1
+#     abso = -np.log10(spectrum.y)  
 
-    if linetype == '-':
-        ax.plot(spectrum.x, abso + (int(np.floor(i/2))*offset), label = name, linestyle = linetype, color = color)
-    else:
-        ax.plot(spectrum.x, abso + (int(np.floor(i/2))*offset), linestyle = linetype, color = color)
+#     # if linetype == '-':
+#     ax.plot(spectrum.x, abso + (int(np.floor(i/2))*offset), label = name, linestyle = '--', color = color)
+#     # else:
+#         # ax.plot(spectrum.x, abso + (int(np.floor(i/2))*offset), linestyle = linetype, color = color)
         
-    print((np.floor(i/2)-6) * 30)
+#     print((np.floor(i/2)-6) * 30)
     
     
-ax.legend(ncol = 4, loc = 'upper center', fontsize = 'medium')
+ax.legend()
 ax.set_xlim(420,900)
 # ax.set_ylim(0, 1 + (offset * 10))
 plt.tight_layout(pad = 0.5)
-# plt.savefig(save_dir + 'AuNP_UV-Vis' + '.svg', format = 'svg')
+# plt.savefig(save_dir + 'AuNP_UV-Vis_Strath_only' + '.svg', format = 'svg')
 
 #%% Plot LSPR position for each NP batch
 
